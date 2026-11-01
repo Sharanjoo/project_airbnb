@@ -14,11 +14,26 @@ const { validateEnvelope } = require('./envelope');
 const { dlqTopic } = require('./topics');
 const logger = require('./logger');
 
+// Known, harmless KafkaJS startup notices that would otherwise print on every boot:
+//  - the v2 default-partitioner notice (we always set a message key, so the partitioner choice is explicit)
+//  - "limiting retries for the idempotent producer": retries are bounded on purpose so the
+//    Booking API answers 503 when Kafka is down instead of hanging
+const IGNORED_KAFKAJS_WARNINGS = [/switched default partitioner/, /Limiting retries for the idempotent producer/];
+
+// Route KafkaJS logs through our JSON logger so every line has the same shape.
+const kafkaLogCreator = () => ({ level, log }) => {
+  const { message, timestamp, logger: _l, ...extra } = log; // eslint-disable-line no-unused-vars
+  if (IGNORED_KAFKAJS_WARNINGS.some((re) => re.test(message))) return;
+  const fn = level <= logLevel.ERROR ? logger.error : logger.warn;
+  fn(`kafkajs: ${message}`, extra);
+};
+
 function createKafka(clientId) {
   return new Kafka({
     clientId,
     brokers: (process.env.KAFKA_BROKERS || 'localhost:9094').split(','),
     logLevel: logLevel.WARN,
+    logCreator: kafkaLogCreator,
     retry: { retries: 5 },
   });
 }

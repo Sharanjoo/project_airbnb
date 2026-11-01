@@ -17,15 +17,39 @@ const HEALTH = {
 const ok = (m) => console.log(`  ok    ${m}`);
 const bad = (m) => { console.log(`  FAIL  ${m}`); process.exitCode = 1; };
 
-async function main() {
-  console.log('Health checks');
-  for (const [name, port] of Object.entries(HEALTH)) {
+// Services take a few seconds to boot after `docker compose up`, so keep
+// polling /health until it answers or the wait runs out.
+const WAIT_MS = Number(process.env.SMOKE_WAIT_MS || 60000);
+
+async function waitForHealth(name, port, deadline) {
+  let last = 'not checked';
+  while (Date.now() < deadline) {
     try {
       const r = await fetch(`http://localhost:${port}/health`, { signal: AbortSignal.timeout(2000) });
-      r.ok ? ok(`${name} :${port}`) : bad(`${name} :${port} -> ${r.status}`);
+      if (r.ok) return null;
+      last = `HTTP ${r.status}`;
+      if (r.status === 404 || r.status === 405) return `${last} (another program may be using port ${port})`;
     } catch (e) {
-      bad(`${name} :${port} not reachable (${e.cause?.code || e.message})`);
+      last = e.cause?.code || e.message;
     }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return `not ready after ${WAIT_MS / 1000}s (${last})`;
+}
+
+async function main() {
+  console.log(`Health checks (waiting up to ${WAIT_MS / 1000}s for services to start)`);
+  const deadline = Date.now() + WAIT_MS;
+  const results = await Promise.all(
+    Object.entries(HEALTH).map(async ([name, port]) => [name, port, await waitForHealth(name, port, deadline)]),
+  );
+  for (const [name, port, problem] of results) {
+    problem ? bad(`${name} :${port} ${problem}`) : ok(`${name} :${port}`);
+  }
+  if (process.exitCode) {
+    console.log('\nSkipping the booking test until every service is healthy.');
+    console.log('Check a failing service with: docker compose logs <service> --tail 40');
+    return;
   }
 
   console.log('\nBooking through Kafka');
