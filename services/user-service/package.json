@@ -1,0 +1,17 @@
+{
+  "name": "@airbnb/user-service",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch --env-file-if-exists=../../.env src/index.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@airbnb/common": "*",
+    "bcryptjs": "^2.4.3",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

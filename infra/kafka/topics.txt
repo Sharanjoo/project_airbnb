@@ -1,0 +1,28 @@
+# topic                    partitions
+# Every topic below also gets a <topic>.dlq with 1 partition.
+# Keep in sync with packages/common/src/topics.js (a test checks this).
+user.created               3
+user.updated               3
+property.created           3
+property.updated           3
+property.viewed            6
+property.saved             3
+availability.changed       3
+booking.requested          6
+booking.approved           6
+booking.declined           6
+booking.cancel_requested   6
+booking.confirmed          6
+booking.rejected           6
+booking.cancelled          6
+booking.completed          6
+payment.completed          3
+message.sent               3
+review.created             3
+review.responded           3
+ai.requests                6
+debate.round.0             6
+debate.round.1             6
+debate.round.2             6
+ai.results                 6
+ai.approvals               6

@@ -1,0 +1,223 @@
+# Whole stack. Two ways to work:
+#   1. Infra only, services on your machine:  npm run infra:up   then  npm run dev:<service>
+#   2. Everything in Docker:                  docker compose up --build
+#
+# Host ports: Kafka 9094, MySQL 3307, MongoDB 27018, Redis 6379, Kafka UI 8090,
+# gateway 8080, services 8001-8009, client 5173 (run with npm run dev:client).
+
+x-node-env: &node-env
+  NODE_ENV: development
+  JWT_SECRET: ${JWT_SECRET:-change-me-dev-secret}
+  KAFKA_BROKERS: kafka:9092
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_USER: airbnb
+  MYSQL_PASSWORD: airbnb
+  MYSQL_DATABASE: airbnb
+  MONGO_URL: mongodb://mongo:27017
+  MONGO_DB: airbnb
+  REDIS_URL: redis://redis:6379
+
+x-depends-infra: &depends-infra
+  kafka-init:
+    condition: service_completed_successfully
+  mysql:
+    condition: service_healthy
+  mongo:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+
+services:
+  # ------------------------------------------------------------------ infra
+  kafka:
+    image: apache/kafka:3.8.1
+    ports: ["9094:9094"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    volumes: ["kafka-data:/var/lib/kafka/data"]
+
+  kafka-init:
+    image: apache/kafka:3.8.1
+    depends_on: [kafka]
+    entrypoint: ["/bin/bash", "/topics/create-topics.sh"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    volumes: ["./infra/kafka:/topics:ro"]
+    restart: "no"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    ports: ["8090:8080"]
+    depends_on: [kafka]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  mysql:
+    image: mysql:8.4
+    ports: ["3307:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: airbnb
+      MYSQL_USER: airbnb
+      MYSQL_PASSWORD: airbnb
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      retries: 30
+
+  mongo:
+    image: mongo:7.0
+    ports: ["27018:27017"]
+    volumes:
+      - mongo-data:/data/db
+      - ./infra/mongo/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 30
+
+  # ------------------------------------------------------------------ services
+  gateway:
+    build: { context: ., dockerfile: services/gateway/Dockerfile }
+    ports: ["8080:8080"]
+    environment:
+      <<: *node-env
+      USER_SERVICE_URL: http://user-service:8001
+      PROPERTY_SERVICE_URL: http://property-service:8002
+      BOOKING_SERVICE_URL: http://booking-service:8003
+      MESSAGING_SERVICE_URL: http://messaging-service:8004
+      REVIEW_SERVICE_URL: http://review-service:8005
+      ANALYTICS_SERVICE_URL: http://analytics-service:8006
+      AI_SERVICE_URL: http://ai-service:8007
+
+  user-service:
+    build: { context: ., dockerfile: services/user-service/Dockerfile }
+    ports: ["8001:8001"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  property-service:
+    build: { context: ., dockerfile: services/property-service/Dockerfile }
+    ports: ["8002:8002"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  booking-service:
+    build: { context: ., dockerfile: services/booking-service/Dockerfile }
+    ports: ["8003:8003"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  booking-worker:
+    build: { context: ., dockerfile: services/booking-service/Dockerfile }
+    command: ["node", "src/worker.js"]
+    environment: { <<: *node-env, SERVICE_NAME: booking-worker }
+    depends_on: *depends-infra
+    # scale for the Kafka scaling experiment: docker compose up --scale booking-worker=3
+
+  messaging-service:
+    build: { context: ., dockerfile: services/messaging-service/Dockerfile }
+    ports: ["8004:8004"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  messaging-worker:
+    build: { context: ., dockerfile: services/messaging-service/Dockerfile }
+    command: ["node", "src/worker.js"]
+    environment: { <<: *node-env, SERVICE_NAME: messaging-worker }
+    depends_on: *depends-infra
+
+  review-service:
+    build: { context: ., dockerfile: services/review-service/Dockerfile }
+    ports: ["8005:8005"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  analytics-service:
+    build: { context: ., dockerfile: services/analytics-service/Dockerfile }
+    ports: ["8006:8006"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  analytics-worker:
+    build: { context: ., dockerfile: services/analytics-service/Dockerfile }
+    command: ["node", "src/worker.js"]
+    environment: { <<: *node-env, SERVICE_NAME: analytics-worker }
+    depends_on: *depends-infra
+
+  notification-gateway:
+    build: { context: ., dockerfile: services/notification-gateway/Dockerfile }
+    ports: ["8009:8009"]
+    environment: *node-env
+    depends_on: *depends-infra
+
+  # ------------------------------------------------------------------ AI (FastAPI + agents)
+  ai-service:
+    build: { context: ., dockerfile: services/ai-service/Dockerfile }
+    ports: ["8007:8007"]
+    environment: &ai-env
+      KAFKA_BROKERS: kafka:9092
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: airbnb
+      AI_CONFIG_VERSION: matcher-v1
+    depends_on: *depends-infra
+
+  ai-parser:
+    build: { context: ., dockerfile: services/ai-service/Dockerfile }
+    command: ["python", "-m", "agents", "parser"]
+    environment: *ai-env
+    depends_on: *depends-infra
+
+  ai-chair:
+    build: { context: ., dockerfile: services/ai-service/Dockerfile }
+    command: ["python", "-m", "agents", "chair"]
+    environment: *ai-env
+    depends_on: *depends-infra
+
+  ai-matching:
+    build: { context: ., dockerfile: services/ai-service/Dockerfile }
+    command: ["python", "-m", "agents", "matching"]
+    environment: *ai-env
+    depends_on: *depends-infra
+
+  ai-risk:
+    build: { context: ., dockerfile: services/ai-service/Dockerfile }
+    command: ["python", "-m", "agents", "risk"]
+    environment: *ai-env
+    depends_on: *depends-infra
+
+  ai-fairness:
+    build: { context: ., dockerfile: services/ai-service/Dockerfile }
+    command: ["python", "-m", "agents", "fairness"]
+    environment: *ai-env
+    depends_on: *depends-infra
+
+volumes:
+  kafka-data:
+  mysql-data:
+  mongo-data:

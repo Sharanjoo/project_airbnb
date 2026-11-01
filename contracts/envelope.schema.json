@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://airbnb-platform.local/contracts/envelope.schema.json",
+  "title": "Shared Kafka event envelope",
+  "description": "Every Kafka message on every topic uses this envelope. Producers validate before send; consumers validate before processing. Invalid messages go to <topic>.dlq.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "trace_id",
+    "timestamp",
+    "actor_id",
+    "actor_type",
+    "entity",
+    "payload",
+    "idempotency_key"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z]+(\\.[a-z0-9_]+)+$"
+    },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "actor_id": { "type": "string", "minLength": 1 },
+    "actor_type": {
+      "type": "string",
+      "enum": ["guest", "host", "service", "system", "agent", "admin"]
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_type", "entity_id"],
+      "properties": {
+        "entity_type": { "type": "string", "minLength": 1 },
+        "entity_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "payload": { "type": "object" },
+    "idempotency_key": { "type": "string", "minLength": 1 }
+  }
+}
