@@ -3,6 +3,7 @@ process.env.NODE_ENV = 'test';
 // Keep this list in sync with the doc; add behaviour tests next to it as you implement.
 const test = require('node:test');
 const assert = require('node:assert');
+const { getMysql, getRedis } = require('@airbnb/common');
 const app = require('../src/index');
 
 const ENDPOINTS = [
@@ -46,4 +47,10 @@ test('unknown route returns the common 404 error body', async () => {
   } finally {
     server.close();
   }
+});
+
+// Search now really queries MySQL and Redis; close those connections so the test process can exit.
+test.after(async () => {
+  await getMysql().end().catch(() => {});
+  getRedis().disconnect();
 });

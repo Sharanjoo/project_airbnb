@@ -22,6 +22,7 @@
     "dev:gateway": "npm run dev -w services/gateway",
     "dev:user": "npm run dev -w services/user-service",
     "dev:property": "npm run dev -w services/property-service",
+    "dev:property-worker": "npm run worker -w services/property-service",
     "dev:booking": "npm run dev -w services/booking-service",
     "dev:booking-worker": "npm run worker -w services/booking-service",
     "dev:messaging": "npm run dev -w services/messaging-service",
@@ -29,7 +30,10 @@
     "dev:analytics": "npm run dev -w services/analytics-service",
     "dev:notify": "npm run dev -w services/notification-gateway",
     "dev:client": "npm run dev -w client",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "gen:properties": "node scripts/generate-properties.js",
+    "bench:search": "node scripts/bench-search.js",
+    "demo:cache": "node scripts/demo-cache.js"
   },
   "engines": {
     "node": ">=22"

@@ -37,6 +37,8 @@ Then either run the services you are working on locally:
 npm run dev:gateway
 npm run dev:booking
 npm run dev:booking-worker
+npm run dev:property         # property API
+npm run dev:property-worker  # cache invalidation, ratings, Mongo read model
 npm run dev:client           # http://localhost:5173
 ```
 
@@ -106,12 +108,24 @@ React -> gateway :8080 -> Booking API :8003 -> Kafka booking.requested
 - Stay dates are plain `YYYY-MM-DD`; timestamps are UTC ISO strings ending in `Z`.
 - Topic names come from `TOPICS` in `@airbnb/common`. To add a topic, edit `infra/kafka/topics.txt` **and** `packages/common/src/topics.js` (a test checks they match).
 
+## Data and experiment scripts
+
+```bash
+npm run gen:properties                       # the fixed 200-property pool (AI benchmark "active-pool-v1")
+npm run gen:properties -- --count 10000 --mongo   # bigger dataset + MongoDB read model for search experiments
+npm run bench:search -- --strategy mysql --cache off   # search benchmark, results in tests/load/results/
+npm run demo:cache                           # 13.9 demo: MISS, HIT, price change, fresh MISS
+```
+
+Design notes for properties, search, availability and caching: [docs/slice2-properties-search.md](docs/slice2-properties-search.md).
+
 ## Tests
 
 ```bash
 npm test                                   # all Node unit tests
 npm test -w services/booking-service       # one service
 npm run test:db -w services/booking-service  # double-booking + duplicate-event test, needs MySQL running
+npm run test:db -w services/property-service # property SQL, concurrent updates, cache invalidation; needs MySQL + Redis
 cd services/ai-service && pip install -r requirements.txt && pytest
 ```
 
@@ -125,6 +139,7 @@ Working and tested:
 - Shared envelope validation (Node and Python use the same schema file)
 - Kafka consumer logic: malformed or invalid messages go to DLQ, transient errors retry with backoff, permanent errors skip retries
 - Gateway: JWT, spoofed identity headers dropped, trace id, 503 when a service is down
+- Properties (Slice 2): create, get, update, delete, save, search with two strategies and a Redis cache, availability with conflict detection, property worker, client search/detail/host pages
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)
 - Notification gateway WebSocket push by channel
