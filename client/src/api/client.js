@@ -30,10 +30,10 @@ export function logout() {
   window.location.href = '/login';
 }
 
-/** api('booking', '/bookings/request', body, { idempotencyKey }) */
-export async function api(service, path, body, { method = 'POST', idempotencyKey } = {}) {
+/** api('booking', '/bookings/request', body, { idempotencyKey, headers }) */
+export async function api(service, path, body, { method = 'POST', idempotencyKey, headers: extra = {} } = {}) {
   const session = getSession();
-  const headers = { 'Content-Type': 'application/json', 'X-Trace-Id': crypto.randomUUID() };
+  const headers = { 'Content-Type': 'application/json', 'X-Trace-Id': crypto.randomUUID(), ...extra };
   if (session?.token) headers.Authorization = `Bearer ${session.token}`;
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
 

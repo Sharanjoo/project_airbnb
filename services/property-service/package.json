@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch --env-file-if-exists=../../.env src/index.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:db": "node --test \"test/integration/*.int.js\"",
+    "worker": "node --watch --env-file-if-exists=../../.env src/worker.js"
   },
   "dependencies": {
     "@airbnb/common": "*",

@@ -1,0 +1,3456 @@
+{
+  "pool_ref": "active-pool-v1",
+  "seed": 42,
+  "count": 200,
+  "generated_by": "scripts/generate-properties.js",
+  "properties": [
+    {
+      "property_id": "prp_gen_00001",
+      "title": "Spacious apartment by the water",
+      "city": "San Francisco",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 277,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 113
+    },
+    {
+      "property_id": "prp_gen_00002",
+      "title": "Garden private room with parking",
+      "city": "Sacramento",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 56,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 3.63,
+      "review_count": 52
+    },
+    {
+      "property_id": "prp_gen_00003",
+      "title": "Quiet cabin near downtown",
+      "city": "South Lake Tahoe",
+      "property_type": "cabin",
+      "capacity": 4,
+      "nightly_price": 168,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.26,
+      "review_count": 249
+    },
+    {
+      "property_id": "prp_gen_00004",
+      "title": "Spacious shared room near transit",
+      "city": "Monterey",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 46,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.47,
+      "review_count": 174
+    },
+    {
+      "property_id": "prp_gen_00005",
+      "title": "Minimal apartment with a view",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 268,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.87,
+      "review_count": 123
+    },
+    {
+      "property_id": "prp_gen_00006",
+      "title": "Bright condo by the water",
+      "city": "Sacramento",
+      "property_type": "condo",
+      "capacity": 5,
+      "nightly_price": 201,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating"
+      ],
+      "rating": 4.01,
+      "review_count": 92
+    },
+    {
+      "property_id": "prp_gen_00007",
+      "title": "Restored apartment near campus",
+      "city": "San Jose",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 133,
+      "amenities": [
+        "wifi",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.65,
+      "review_count": 83
+    },
+    {
+      "property_id": "prp_gen_00008",
+      "title": "Sunny apartment near campus",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 334,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pool",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.28,
+      "review_count": 188
+    },
+    {
+      "property_id": "prp_gen_00009",
+      "title": "Cozy condo by the park",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 296,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00010",
+      "title": "Cozy condo with patio",
+      "city": "Monterey",
+      "property_type": "condo",
+      "capacity": 6,
+      "nightly_price": 367,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.74,
+      "review_count": 85
+    },
+    {
+      "property_id": "prp_gen_00011",
+      "title": "Garden condo near transit",
+      "city": "Monterey",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 290,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating"
+      ],
+      "rating": 4.88,
+      "review_count": 154
+    },
+    {
+      "property_id": "prp_gen_00012",
+      "title": "Charming entire home by the water",
+      "city": "Napa",
+      "property_type": "entire_home",
+      "capacity": 2,
+      "nightly_price": 381,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.9,
+      "review_count": 66
+    },
+    {
+      "property_id": "prp_gen_00013",
+      "title": "Minimal entire home by the park",
+      "city": "Napa",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 340,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "pool",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.42,
+      "review_count": 127
+    },
+    {
+      "property_id": "prp_gen_00014",
+      "title": "Charming apartment near transit",
+      "city": "San Francisco",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 287,
+      "amenities": [
+        "wifi",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 3.64,
+      "review_count": 146
+    },
+    {
+      "property_id": "prp_gen_00015",
+      "title": "Modern apartment with a view",
+      "city": "Oakland",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 95,
+      "amenities": [
+        "wifi",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 87
+    },
+    {
+      "property_id": "prp_gen_00016",
+      "title": "Garden entire home near campus",
+      "city": "Oakland",
+      "property_type": "entire_home",
+      "capacity": 8,
+      "nightly_price": 173,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "workspace"
+      ],
+      "rating": 3.51,
+      "review_count": 119
+    },
+    {
+      "property_id": "prp_gen_00017",
+      "title": "Spacious private room with a view",
+      "city": "Santa Cruz",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 82,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00018",
+      "title": "Garden entire home near campus",
+      "city": "Sacramento",
+      "property_type": "entire_home",
+      "capacity": 2,
+      "nightly_price": 261,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating"
+      ],
+      "rating": 4.82,
+      "review_count": 195
+    },
+    {
+      "property_id": "prp_gen_00019",
+      "title": "Bright condo near campus",
+      "city": "Palo Alto",
+      "property_type": "condo",
+      "capacity": 3,
+      "nightly_price": 269,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pool",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 117
+    },
+    {
+      "property_id": "prp_gen_00020",
+      "title": "Spacious condo with parking",
+      "city": "Palo Alto",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 340,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pool",
+        "self_checkin"
+      ],
+      "rating": 4.09,
+      "review_count": 225
+    },
+    {
+      "property_id": "prp_gen_00021",
+      "title": "Restored apartment with patio",
+      "city": "Napa",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 251,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.75,
+      "review_count": 103
+    },
+    {
+      "property_id": "prp_gen_00022",
+      "title": "Garden apartment near transit",
+      "city": "Monterey",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 245,
+      "amenities": [
+        "wifi",
+        "parking",
+        "heating"
+      ],
+      "rating": 4,
+      "review_count": 6
+    },
+    {
+      "property_id": "prp_gen_00023",
+      "title": "Cozy private room with a view",
+      "city": "South Lake Tahoe",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 90,
+      "amenities": [
+        "wifi",
+        "parking",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 4.29,
+      "review_count": 214
+    },
+    {
+      "property_id": "prp_gen_00024",
+      "title": "Sunny private room with a view",
+      "city": "Santa Cruz",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 57,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.89,
+      "review_count": 88
+    },
+    {
+      "property_id": "prp_gen_00025",
+      "title": "Cozy entire home with parking",
+      "city": "South Lake Tahoe",
+      "property_type": "entire_home",
+      "capacity": 9,
+      "nightly_price": 399,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "pet_friendly"
+      ],
+      "rating": 4.11,
+      "review_count": 131
+    },
+    {
+      "property_id": "prp_gen_00026",
+      "title": "Cozy shared room with patio",
+      "city": "Monterey",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 52,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.05,
+      "review_count": 143
+    },
+    {
+      "property_id": "prp_gen_00027",
+      "title": "Cozy shared room with patio",
+      "city": "Santa Cruz",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 73,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.17,
+      "review_count": 238
+    },
+    {
+      "property_id": "prp_gen_00028",
+      "title": "Cozy condo with a view",
+      "city": "San Jose",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 158,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00029",
+      "title": "Sunny condo by the water",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 6,
+      "nightly_price": 308,
+      "amenities": [
+        "wifi",
+        "parking",
+        "pet_friendly"
+      ],
+      "rating": 3.64,
+      "review_count": 212
+    },
+    {
+      "property_id": "prp_gen_00030",
+      "title": "Restored entire home with parking",
+      "city": "Oakland",
+      "property_type": "entire_home",
+      "capacity": 5,
+      "nightly_price": 271,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "pool",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 148
+    },
+    {
+      "property_id": "prp_gen_00031",
+      "title": "Bright cabin by the park",
+      "city": "San Jose",
+      "property_type": "cabin",
+      "capacity": 6,
+      "nightly_price": 221,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 4.15,
+      "review_count": 214
+    },
+    {
+      "property_id": "prp_gen_00032",
+      "title": "Bright condo near campus",
+      "city": "Santa Cruz",
+      "property_type": "condo",
+      "capacity": 1,
+      "nightly_price": 202,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "self_checkin"
+      ],
+      "rating": 3.87,
+      "review_count": 115
+    },
+    {
+      "property_id": "prp_gen_00033",
+      "title": "Charming apartment near transit",
+      "city": "Oakland",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 186,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pool",
+        "workspace"
+      ],
+      "rating": 3.99,
+      "review_count": 150
+    },
+    {
+      "property_id": "prp_gen_00034",
+      "title": "Cozy apartment near campus",
+      "city": "Fresno",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 128,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.29,
+      "review_count": 60
+    },
+    {
+      "property_id": "prp_gen_00035",
+      "title": "Modern entire home near transit",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 10,
+      "nightly_price": 548,
+      "amenities": [
+        "wifi",
+        "ac",
+        "workspace"
+      ],
+      "rating": 4.26,
+      "review_count": 229
+    },
+    {
+      "property_id": "prp_gen_00036",
+      "title": "Sunny shared room by the park",
+      "city": "Santa Cruz",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 47,
+      "amenities": [
+        "wifi",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.34,
+      "review_count": 72
+    },
+    {
+      "property_id": "prp_gen_00037",
+      "title": "Cozy shared room with a view",
+      "city": "Oakland",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 46,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "self_checkin"
+      ],
+      "rating": 4.44,
+      "review_count": 35
+    },
+    {
+      "property_id": "prp_gen_00038",
+      "title": "Minimal apartment by the water",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 288,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "pool",
+        "self_checkin"
+      ],
+      "rating": 4.32,
+      "review_count": 60
+    },
+    {
+      "property_id": "prp_gen_00039",
+      "title": "Spacious entire home near transit",
+      "city": "Sacramento",
+      "property_type": "entire_home",
+      "capacity": 3,
+      "nightly_price": 167,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating"
+      ],
+      "rating": 3.5,
+      "review_count": 18
+    },
+    {
+      "property_id": "prp_gen_00040",
+      "title": "Cozy entire home with parking",
+      "city": "Palo Alto",
+      "property_type": "entire_home",
+      "capacity": 7,
+      "nightly_price": 403,
+      "amenities": [
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00041",
+      "title": "Charming apartment with patio",
+      "city": "San Francisco",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 273,
+      "amenities": [
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.87,
+      "review_count": 206
+    },
+    {
+      "property_id": "prp_gen_00042",
+      "title": "Minimal cabin with parking",
+      "city": "Palo Alto",
+      "property_type": "cabin",
+      "capacity": 8,
+      "nightly_price": 290,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 4.5,
+      "review_count": 125
+    },
+    {
+      "property_id": "prp_gen_00043",
+      "title": "Garden entire home by the park",
+      "city": "Palo Alto",
+      "property_type": "entire_home",
+      "capacity": 4,
+      "nightly_price": 277,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pool"
+      ],
+      "rating": 4.36,
+      "review_count": 18
+    },
+    {
+      "property_id": "prp_gen_00044",
+      "title": "Minimal private room near transit",
+      "city": "Santa Cruz",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 116,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "self_checkin"
+      ],
+      "rating": 4.62,
+      "review_count": 93
+    },
+    {
+      "property_id": "prp_gen_00045",
+      "title": "Spacious apartment with parking",
+      "city": "Santa Cruz",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 203,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pool"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00046",
+      "title": "Bright condo near transit",
+      "city": "Santa Cruz",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 151,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.65,
+      "review_count": 184
+    },
+    {
+      "property_id": "prp_gen_00047",
+      "title": "Bright entire home near campus",
+      "city": "San Jose",
+      "property_type": "entire_home",
+      "capacity": 10,
+      "nightly_price": 240,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "workspace"
+      ],
+      "rating": 3.98,
+      "review_count": 194
+    },
+    {
+      "property_id": "prp_gen_00048",
+      "title": "Sunny private room with patio",
+      "city": "Monterey",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 77,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.19,
+      "review_count": 22
+    },
+    {
+      "property_id": "prp_gen_00049",
+      "title": "Quiet apartment by the water",
+      "city": "San Francisco",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 290,
+      "amenities": [
+        "wifi",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.52,
+      "review_count": 168
+    },
+    {
+      "property_id": "prp_gen_00050",
+      "title": "Cozy cabin with a view",
+      "city": "San Francisco",
+      "property_type": "cabin",
+      "capacity": 8,
+      "nightly_price": 246,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.03,
+      "review_count": 24
+    },
+    {
+      "property_id": "prp_gen_00051",
+      "title": "Spacious entire home with parking",
+      "city": "Sacramento",
+      "property_type": "entire_home",
+      "capacity": 2,
+      "nightly_price": 186,
+      "amenities": [
+        "wifi",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.77,
+      "review_count": 44
+    },
+    {
+      "property_id": "prp_gen_00052",
+      "title": "Garden private room with parking",
+      "city": "Napa",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 79,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 3.59,
+      "review_count": 235
+    },
+    {
+      "property_id": "prp_gen_00053",
+      "title": "Garden private room by the water",
+      "city": "Santa Cruz",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 93,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.72,
+      "review_count": 239
+    },
+    {
+      "property_id": "prp_gen_00054",
+      "title": "Restored apartment with parking",
+      "city": "Napa",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 286,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.96,
+      "review_count": 199
+    },
+    {
+      "property_id": "prp_gen_00055",
+      "title": "Cozy apartment with parking",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 129,
+      "amenities": [
+        "wifi",
+        "washer",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.2,
+      "review_count": 174
+    },
+    {
+      "property_id": "prp_gen_00056",
+      "title": "Minimal cabin near campus",
+      "city": "San Jose",
+      "property_type": "cabin",
+      "capacity": 6,
+      "nightly_price": 204,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00057",
+      "title": "Modern apartment near campus",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 282,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.67,
+      "review_count": 8
+    },
+    {
+      "property_id": "prp_gen_00058",
+      "title": "Charming private room near downtown",
+      "city": "Napa",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 105,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "pool",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 3.61,
+      "review_count": 139
+    },
+    {
+      "property_id": "prp_gen_00059",
+      "title": "Spacious shared room with patio",
+      "city": "Monterey",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 69,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 3.5,
+      "review_count": 248
+    },
+    {
+      "property_id": "prp_gen_00060",
+      "title": "Modern private room near campus",
+      "city": "South Lake Tahoe",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 81,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.73,
+      "review_count": 81
+    },
+    {
+      "property_id": "prp_gen_00061",
+      "title": "Restored apartment with parking",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 99,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.56,
+      "review_count": 151
+    },
+    {
+      "property_id": "prp_gen_00062",
+      "title": "Cozy apartment by the water",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 271,
+      "amenities": [
+        "wifi",
+        "parking",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 3.46,
+      "review_count": 69
+    },
+    {
+      "property_id": "prp_gen_00063",
+      "title": "Minimal condo by the park",
+      "city": "Oakland",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 233,
+      "amenities": [
+        "wifi",
+        "parking",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.26,
+      "review_count": 173
+    },
+    {
+      "property_id": "prp_gen_00064",
+      "title": "Garden entire home by the park",
+      "city": "Santa Cruz",
+      "property_type": "entire_home",
+      "capacity": 4,
+      "nightly_price": 275,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 5,
+      "review_count": 45
+    },
+    {
+      "property_id": "prp_gen_00065",
+      "title": "Quiet apartment near campus",
+      "city": "San Jose",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 172,
+      "amenities": [
+        "parking",
+        "washer",
+        "ac",
+        "self_checkin"
+      ],
+      "rating": 4.57,
+      "review_count": 43
+    },
+    {
+      "property_id": "prp_gen_00066",
+      "title": "Minimal condo with a view",
+      "city": "Napa",
+      "property_type": "condo",
+      "capacity": 5,
+      "nightly_price": 207,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00067",
+      "title": "Quiet condo by the water",
+      "city": "Fresno",
+      "property_type": "condo",
+      "capacity": 2,
+      "nightly_price": 69,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.17,
+      "review_count": 64
+    },
+    {
+      "property_id": "prp_gen_00068",
+      "title": "Modern private room by the park",
+      "city": "Napa",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 129,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "pool",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.79,
+      "review_count": 76
+    },
+    {
+      "property_id": "prp_gen_00069",
+      "title": "Garden apartment by the park",
+      "city": "Fresno",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 128,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating"
+      ],
+      "rating": 3.79,
+      "review_count": 113
+    },
+    {
+      "property_id": "prp_gen_00070",
+      "title": "Charming condo by the park",
+      "city": "Oakland",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 208,
+      "amenities": [
+        "wifi",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 3.44,
+      "review_count": 8
+    },
+    {
+      "property_id": "prp_gen_00071",
+      "title": "Sunny cabin with patio",
+      "city": "South Lake Tahoe",
+      "property_type": "cabin",
+      "capacity": 8,
+      "nightly_price": 155,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating"
+      ],
+      "rating": 3.65,
+      "review_count": 244
+    },
+    {
+      "property_id": "prp_gen_00072",
+      "title": "Sunny private room near downtown",
+      "city": "Napa",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 96,
+      "amenities": [
+        "wifi",
+        "parking",
+        "heating"
+      ],
+      "rating": 4.68,
+      "review_count": 194
+    },
+    {
+      "property_id": "prp_gen_00073",
+      "title": "Sunny entire home with patio",
+      "city": "San Jose",
+      "property_type": "entire_home",
+      "capacity": 4,
+      "nightly_price": 332,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.85,
+      "review_count": 222
+    },
+    {
+      "property_id": "prp_gen_00074",
+      "title": "Garden private room near campus",
+      "city": "Fresno",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 43,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "pool",
+        "self_checkin"
+      ],
+      "rating": 3.64,
+      "review_count": 47
+    },
+    {
+      "property_id": "prp_gen_00075",
+      "title": "Spacious apartment by the water",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 108,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "self_checkin"
+      ],
+      "rating": 4.65,
+      "review_count": 164
+    },
+    {
+      "property_id": "prp_gen_00076",
+      "title": "Modern private room near downtown",
+      "city": "Monterey",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 148,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "pool"
+      ],
+      "rating": 3.9,
+      "review_count": 38
+    },
+    {
+      "property_id": "prp_gen_00077",
+      "title": "Spacious private room with a view",
+      "city": "San Francisco",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 80,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pool",
+        "workspace"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00078",
+      "title": "Garden shared room near transit",
+      "city": "San Francisco",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 73,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.45,
+      "review_count": 96
+    },
+    {
+      "property_id": "prp_gen_00079",
+      "title": "Quiet private room near campus",
+      "city": "Santa Cruz",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 62,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating"
+      ],
+      "rating": 3.78,
+      "review_count": 217
+    },
+    {
+      "property_id": "prp_gen_00080",
+      "title": "Restored condo by the park",
+      "city": "Monterey",
+      "property_type": "condo",
+      "capacity": 3,
+      "nightly_price": 233,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "self_checkin"
+      ],
+      "rating": 4.8,
+      "review_count": 160
+    },
+    {
+      "property_id": "prp_gen_00081",
+      "title": "Cozy private room near downtown",
+      "city": "South Lake Tahoe",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 48,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 5,
+      "review_count": 169
+    },
+    {
+      "property_id": "prp_gen_00082",
+      "title": "Sunny condo with patio",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 6,
+      "nightly_price": 211,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pool",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.55,
+      "review_count": 81
+    },
+    {
+      "property_id": "prp_gen_00083",
+      "title": "Sunny entire home by the water",
+      "city": "Oakland",
+      "property_type": "entire_home",
+      "capacity": 3,
+      "nightly_price": 152,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.79,
+      "review_count": 149
+    },
+    {
+      "property_id": "prp_gen_00084",
+      "title": "Charming private room by the water",
+      "city": "Palo Alto",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 65,
+      "amenities": [
+        "wifi",
+        "parking",
+        "ac"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00085",
+      "title": "Quiet condo with parking",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 3,
+      "nightly_price": 263,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.99,
+      "review_count": 180
+    },
+    {
+      "property_id": "prp_gen_00086",
+      "title": "Quiet apartment with parking",
+      "city": "Oakland",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 171,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.33,
+      "review_count": 72
+    },
+    {
+      "property_id": "prp_gen_00087",
+      "title": "Restored shared room with patio",
+      "city": "Palo Alto",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 36,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.82,
+      "review_count": 177
+    },
+    {
+      "property_id": "prp_gen_00088",
+      "title": "Sunny apartment with patio",
+      "city": "Monterey",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 238,
+      "amenities": [
+        "wifi",
+        "parking",
+        "heating"
+      ],
+      "rating": 3.55,
+      "review_count": 179
+    },
+    {
+      "property_id": "prp_gen_00089",
+      "title": "Spacious entire home near downtown",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 400,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 5,
+      "review_count": 14
+    },
+    {
+      "property_id": "prp_gen_00090",
+      "title": "Restored private room near campus",
+      "city": "Fresno",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 47,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.83,
+      "review_count": 21
+    },
+    {
+      "property_id": "prp_gen_00091",
+      "title": "Modern condo near downtown",
+      "city": "Santa Cruz",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 160,
+      "amenities": [
+        "kitchen",
+        "ac",
+        "heating"
+      ],
+      "rating": 4,
+      "review_count": 70
+    },
+    {
+      "property_id": "prp_gen_00092",
+      "title": "Modern apartment with parking",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 285,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer"
+      ],
+      "rating": 4.78,
+      "review_count": 49
+    },
+    {
+      "property_id": "prp_gen_00093",
+      "title": "Spacious apartment near downtown",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 165,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.71,
+      "review_count": 219
+    },
+    {
+      "property_id": "prp_gen_00094",
+      "title": "Modern entire home with parking",
+      "city": "Santa Cruz",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 319,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "self_checkin"
+      ],
+      "rating": 3.51,
+      "review_count": 26
+    },
+    {
+      "property_id": "prp_gen_00095",
+      "title": "Quiet apartment with patio",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 311,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00096",
+      "title": "Spacious cabin near transit",
+      "city": "Sacramento",
+      "property_type": "cabin",
+      "capacity": 2,
+      "nightly_price": 98,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 198
+    },
+    {
+      "property_id": "prp_gen_00097",
+      "title": "Sunny apartment by the water",
+      "city": "Sacramento",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 74,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00098",
+      "title": "Sunny private room near transit",
+      "city": "South Lake Tahoe",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 107,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 5,
+      "review_count": 184
+    },
+    {
+      "property_id": "prp_gen_00099",
+      "title": "Restored private room by the water",
+      "city": "South Lake Tahoe",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 82,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "workspace"
+      ],
+      "rating": 4.31,
+      "review_count": 35
+    },
+    {
+      "property_id": "prp_gen_00100",
+      "title": "Cozy apartment with patio",
+      "city": "San Jose",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 115,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating"
+      ],
+      "rating": 4.37,
+      "review_count": 133
+    },
+    {
+      "property_id": "prp_gen_00101",
+      "title": "Cozy shared room by the park",
+      "city": "Napa",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 64,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating"
+      ],
+      "rating": 3.42,
+      "review_count": 215
+    },
+    {
+      "property_id": "prp_gen_00102",
+      "title": "Sunny apartment near downtown",
+      "city": "Sacramento",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 110,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "self_checkin"
+      ],
+      "rating": 4.85,
+      "review_count": 51
+    },
+    {
+      "property_id": "prp_gen_00103",
+      "title": "Modern entire home near campus",
+      "city": "Palo Alto",
+      "property_type": "entire_home",
+      "capacity": 9,
+      "nightly_price": 347,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00104",
+      "title": "Cozy entire home by the park",
+      "city": "Santa Cruz",
+      "property_type": "entire_home",
+      "capacity": 9,
+      "nightly_price": 207,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 3.55,
+      "review_count": 235
+    },
+    {
+      "property_id": "prp_gen_00105",
+      "title": "Cozy condo by the park",
+      "city": "Sacramento",
+      "property_type": "condo",
+      "capacity": 5,
+      "nightly_price": 193,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating"
+      ],
+      "rating": 4.21,
+      "review_count": 97
+    },
+    {
+      "property_id": "prp_gen_00106",
+      "title": "Minimal entire home with patio",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 5,
+      "nightly_price": 537,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "pool",
+        "workspace"
+      ],
+      "rating": 4.5,
+      "review_count": 239
+    },
+    {
+      "property_id": "prp_gen_00107",
+      "title": "Bright entire home with a view",
+      "city": "San Jose",
+      "property_type": "entire_home",
+      "capacity": 5,
+      "nightly_price": 172,
+      "amenities": [
+        "wifi",
+        "parking",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.21,
+      "review_count": 46
+    },
+    {
+      "property_id": "prp_gen_00108",
+      "title": "Minimal apartment near campus",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 227,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 5,
+      "review_count": 176
+    },
+    {
+      "property_id": "prp_gen_00109",
+      "title": "Garden apartment with patio",
+      "city": "San Jose",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 172,
+      "amenities": [
+        "wifi",
+        "parking",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.63,
+      "review_count": 93
+    },
+    {
+      "property_id": "prp_gen_00110",
+      "title": "Bright apartment by the park",
+      "city": "Oakland",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 152,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "pet_friendly"
+      ],
+      "rating": 3.95,
+      "review_count": 152
+    },
+    {
+      "property_id": "prp_gen_00111",
+      "title": "Spacious apartment near transit",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 140,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.14,
+      "review_count": 53
+    },
+    {
+      "property_id": "prp_gen_00112",
+      "title": "Quiet cabin with a view",
+      "city": "San Jose",
+      "property_type": "cabin",
+      "capacity": 3,
+      "nightly_price": 233,
+      "amenities": [
+        "ac",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00113",
+      "title": "Charming apartment near campus",
+      "city": "Fresno",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 107,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "self_checkin"
+      ],
+      "rating": 3.54,
+      "review_count": 200
+    },
+    {
+      "property_id": "prp_gen_00114",
+      "title": "Quiet cabin near downtown",
+      "city": "San Jose",
+      "property_type": "cabin",
+      "capacity": 4,
+      "nightly_price": 156,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 3.48,
+      "review_count": 43
+    },
+    {
+      "property_id": "prp_gen_00115",
+      "title": "Sunny apartment by the water",
+      "city": "Monterey",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 140,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.21,
+      "review_count": 70
+    },
+    {
+      "property_id": "prp_gen_00116",
+      "title": "Sunny private room with patio",
+      "city": "Oakland",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 46,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.01,
+      "review_count": 235
+    },
+    {
+      "property_id": "prp_gen_00117",
+      "title": "Garden cabin by the park",
+      "city": "Santa Cruz",
+      "property_type": "cabin",
+      "capacity": 3,
+      "nightly_price": 224,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "workspace"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00118",
+      "title": "Garden entire home with patio",
+      "city": "South Lake Tahoe",
+      "property_type": "entire_home",
+      "capacity": 2,
+      "nightly_price": 325,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "workspace"
+      ],
+      "rating": 3.63,
+      "review_count": 19
+    },
+    {
+      "property_id": "prp_gen_00119",
+      "title": "Spacious condo with patio",
+      "city": "Santa Cruz",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 229,
+      "amenities": [
+        "wifi",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 3.98,
+      "review_count": 104
+    },
+    {
+      "property_id": "prp_gen_00120",
+      "title": "Spacious condo near transit",
+      "city": "San Jose",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 141,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.54,
+      "review_count": 238
+    },
+    {
+      "property_id": "prp_gen_00121",
+      "title": "Spacious private room near downtown",
+      "city": "Fresno",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 43,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.09,
+      "review_count": 120
+    },
+    {
+      "property_id": "prp_gen_00122",
+      "title": "Spacious entire home with parking",
+      "city": "South Lake Tahoe",
+      "property_type": "entire_home",
+      "capacity": 8,
+      "nightly_price": 352,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac"
+      ],
+      "rating": 5,
+      "review_count": 101
+    },
+    {
+      "property_id": "prp_gen_00123",
+      "title": "Modern condo near downtown",
+      "city": "Oakland",
+      "property_type": "condo",
+      "capacity": 2,
+      "nightly_price": 146,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating"
+      ],
+      "rating": 4.38,
+      "review_count": 86
+    },
+    {
+      "property_id": "prp_gen_00124",
+      "title": "Charming private room with patio",
+      "city": "Palo Alto",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 100,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "workspace"
+      ],
+      "rating": 3.67,
+      "review_count": 76
+    },
+    {
+      "property_id": "prp_gen_00125",
+      "title": "Garden apartment near transit",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 220,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.55,
+      "review_count": 61
+    },
+    {
+      "property_id": "prp_gen_00126",
+      "title": "Garden apartment by the water",
+      "city": "Santa Cruz",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 228,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.32,
+      "review_count": 211
+    },
+    {
+      "property_id": "prp_gen_00127",
+      "title": "Quiet apartment near campus",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 220,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.72,
+      "review_count": 232
+    },
+    {
+      "property_id": "prp_gen_00128",
+      "title": "Restored condo by the park",
+      "city": "Santa Cruz",
+      "property_type": "condo",
+      "capacity": 1,
+      "nightly_price": 272,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.2,
+      "review_count": 219
+    },
+    {
+      "property_id": "prp_gen_00129",
+      "title": "Modern condo by the park",
+      "city": "Monterey",
+      "property_type": "condo",
+      "capacity": 6,
+      "nightly_price": 284,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 3.78,
+      "review_count": 76
+    },
+    {
+      "property_id": "prp_gen_00130",
+      "title": "Bright apartment near transit",
+      "city": "San Francisco",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 210,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "self_checkin"
+      ],
+      "rating": 3.66,
+      "review_count": 96
+    },
+    {
+      "property_id": "prp_gen_00131",
+      "title": "Quiet apartment by the park",
+      "city": "San Francisco",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 191,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating"
+      ],
+      "rating": 5,
+      "review_count": 235
+    },
+    {
+      "property_id": "prp_gen_00132",
+      "title": "Cozy entire home near campus",
+      "city": "Oakland",
+      "property_type": "entire_home",
+      "capacity": 3,
+      "nightly_price": 275,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.02,
+      "review_count": 70
+    },
+    {
+      "property_id": "prp_gen_00133",
+      "title": "Sunny private room near downtown",
+      "city": "San Jose",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 72,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.91,
+      "review_count": 80
+    },
+    {
+      "property_id": "prp_gen_00134",
+      "title": "Minimal cabin with patio",
+      "city": "Napa",
+      "property_type": "cabin",
+      "capacity": 8,
+      "nightly_price": 378,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "workspace"
+      ],
+      "rating": 4.99,
+      "review_count": 224
+    },
+    {
+      "property_id": "prp_gen_00135",
+      "title": "Bright cabin by the water",
+      "city": "Fresno",
+      "property_type": "cabin",
+      "capacity": 8,
+      "nightly_price": 197,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.82,
+      "review_count": 168
+    },
+    {
+      "property_id": "prp_gen_00136",
+      "title": "Restored apartment near downtown",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 164,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.23,
+      "review_count": 169
+    },
+    {
+      "property_id": "prp_gen_00137",
+      "title": "Bright shared room with a view",
+      "city": "Santa Cruz",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 38,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac"
+      ],
+      "rating": 3.74,
+      "review_count": 163
+    },
+    {
+      "property_id": "prp_gen_00138",
+      "title": "Bright private room by the water",
+      "city": "San Jose",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 112,
+      "amenities": [
+        "wifi",
+        "heating",
+        "pool",
+        "workspace"
+      ],
+      "rating": 4.13,
+      "review_count": 66
+    },
+    {
+      "property_id": "prp_gen_00139",
+      "title": "Bright entire home with parking",
+      "city": "Palo Alto",
+      "property_type": "entire_home",
+      "capacity": 10,
+      "nightly_price": 272,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.43,
+      "review_count": 217
+    },
+    {
+      "property_id": "prp_gen_00140",
+      "title": "Sunny private room with patio",
+      "city": "San Francisco",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 170,
+      "amenities": [
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pool",
+        "self_checkin"
+      ],
+      "rating": 5,
+      "review_count": 74
+    },
+    {
+      "property_id": "prp_gen_00141",
+      "title": "Garden entire home by the water",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 7,
+      "nightly_price": 496,
+      "amenities": [
+        "wifi",
+        "washer",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.44,
+      "review_count": 207
+    },
+    {
+      "property_id": "prp_gen_00142",
+      "title": "Quiet cabin by the water",
+      "city": "Santa Cruz",
+      "property_type": "cabin",
+      "capacity": 5,
+      "nightly_price": 296,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.15,
+      "review_count": 97
+    },
+    {
+      "property_id": "prp_gen_00143",
+      "title": "Restored entire home with a view",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 444,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 4.08,
+      "review_count": 141
+    },
+    {
+      "property_id": "prp_gen_00144",
+      "title": "Bright apartment with parking",
+      "city": "Sacramento",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 133,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00145",
+      "title": "Sunny entire home near downtown",
+      "city": "Palo Alto",
+      "property_type": "entire_home",
+      "capacity": 2,
+      "nightly_price": 242,
+      "amenities": [
+        "wifi",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.87,
+      "review_count": 164
+    },
+    {
+      "property_id": "prp_gen_00146",
+      "title": "Bright apartment by the park",
+      "city": "Napa",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 190,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 4.52,
+      "review_count": 127
+    },
+    {
+      "property_id": "prp_gen_00147",
+      "title": "Restored private room with parking",
+      "city": "San Francisco",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 78,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00148",
+      "title": "Bright shared room near downtown",
+      "city": "Sacramento",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 38,
+      "amenities": [
+        "wifi",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.6,
+      "review_count": 135
+    },
+    {
+      "property_id": "prp_gen_00149",
+      "title": "Spacious entire home with patio",
+      "city": "Fresno",
+      "property_type": "entire_home",
+      "capacity": 9,
+      "nightly_price": 130,
+      "amenities": [
+        "wifi",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.33,
+      "review_count": 215
+    },
+    {
+      "property_id": "prp_gen_00150",
+      "title": "Cozy private room near campus",
+      "city": "Sacramento",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 45,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "self_checkin"
+      ],
+      "rating": 3.58,
+      "review_count": 16
+    },
+    {
+      "property_id": "prp_gen_00151",
+      "title": "Charming condo with a view",
+      "city": "Monterey",
+      "property_type": "condo",
+      "capacity": 3,
+      "nightly_price": 210,
+      "amenities": [
+        "wifi",
+        "parking",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.94,
+      "review_count": 213
+    },
+    {
+      "property_id": "prp_gen_00152",
+      "title": "Quiet apartment by the water",
+      "city": "Fresno",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 95,
+      "amenities": [
+        "kitchen",
+        "self_checkin"
+      ],
+      "rating": 4.28,
+      "review_count": 94
+    },
+    {
+      "property_id": "prp_gen_00153",
+      "title": "Spacious condo by the park",
+      "city": "Sacramento",
+      "property_type": "condo",
+      "capacity": 3,
+      "nightly_price": 123,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.81,
+      "review_count": 156
+    },
+    {
+      "property_id": "prp_gen_00154",
+      "title": "Bright apartment near campus",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 118,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "workspace"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00155",
+      "title": "Restored entire home near transit",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 226,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 3.6,
+      "review_count": 67
+    },
+    {
+      "property_id": "prp_gen_00156",
+      "title": "Quiet condo near downtown",
+      "city": "San Jose",
+      "property_type": "condo",
+      "capacity": 5,
+      "nightly_price": 110,
+      "amenities": [
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 5,
+      "review_count": 223
+    },
+    {
+      "property_id": "prp_gen_00157",
+      "title": "Modern entire home by the park",
+      "city": "Fresno",
+      "property_type": "entire_home",
+      "capacity": 4,
+      "nightly_price": 105,
+      "amenities": [
+        "wifi",
+        "washer",
+        "pet_friendly"
+      ],
+      "rating": 3.43,
+      "review_count": 57
+    },
+    {
+      "property_id": "prp_gen_00158",
+      "title": "Restored condo near downtown",
+      "city": "Monterey",
+      "property_type": "condo",
+      "capacity": 6,
+      "nightly_price": 276,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.79,
+      "review_count": 76
+    },
+    {
+      "property_id": "prp_gen_00159",
+      "title": "Minimal entire home with a view",
+      "city": "Palo Alto",
+      "property_type": "entire_home",
+      "capacity": 8,
+      "nightly_price": 349,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 4.72,
+      "review_count": 245
+    },
+    {
+      "property_id": "prp_gen_00160",
+      "title": "Bright apartment with patio",
+      "city": "Oakland",
+      "property_type": "apartment",
+      "capacity": 1,
+      "nightly_price": 205,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "self_checkin"
+      ],
+      "rating": 3.74,
+      "review_count": 114
+    },
+    {
+      "property_id": "prp_gen_00161",
+      "title": "Cozy entire home near transit",
+      "city": "South Lake Tahoe",
+      "property_type": "entire_home",
+      "capacity": 4,
+      "nightly_price": 246,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 3.65,
+      "review_count": 203
+    },
+    {
+      "property_id": "prp_gen_00162",
+      "title": "Bright condo with parking",
+      "city": "Fresno",
+      "property_type": "condo",
+      "capacity": 4,
+      "nightly_price": 170,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.18,
+      "review_count": 237
+    },
+    {
+      "property_id": "prp_gen_00163",
+      "title": "Garden apartment by the park",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 135,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac"
+      ],
+      "rating": 4.61,
+      "review_count": 129
+    },
+    {
+      "property_id": "prp_gen_00164",
+      "title": "Minimal entire home near transit",
+      "city": "Santa Cruz",
+      "property_type": "entire_home",
+      "capacity": 8,
+      "nightly_price": 342,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00165",
+      "title": "Bright condo with parking",
+      "city": "San Francisco",
+      "property_type": "condo",
+      "capacity": 2,
+      "nightly_price": 412,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "pool",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.79,
+      "review_count": 104
+    },
+    {
+      "property_id": "prp_gen_00166",
+      "title": "Cozy entire home near campus",
+      "city": "Napa",
+      "property_type": "entire_home",
+      "capacity": 2,
+      "nightly_price": 310,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac"
+      ],
+      "rating": 3.51,
+      "review_count": 3
+    },
+    {
+      "property_id": "prp_gen_00167",
+      "title": "Charming apartment near campus",
+      "city": "Napa",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 186,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "self_checkin"
+      ],
+      "rating": 3.45,
+      "review_count": 180
+    },
+    {
+      "property_id": "prp_gen_00168",
+      "title": "Restored private room by the water",
+      "city": "Napa",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 64,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.85,
+      "review_count": 156
+    },
+    {
+      "property_id": "prp_gen_00169",
+      "title": "Modern private room by the park",
+      "city": "South Lake Tahoe",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 97,
+      "amenities": [
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 16
+    },
+    {
+      "property_id": "prp_gen_00170",
+      "title": "Modern cabin with parking",
+      "city": "Fresno",
+      "property_type": "cabin",
+      "capacity": 8,
+      "nightly_price": 216,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating"
+      ],
+      "rating": 4.23,
+      "review_count": 178
+    },
+    {
+      "property_id": "prp_gen_00171",
+      "title": "Restored shared room near downtown",
+      "city": "Fresno",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 25,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "heating",
+        "self_checkin"
+      ],
+      "rating": 3.77,
+      "review_count": 134
+    },
+    {
+      "property_id": "prp_gen_00172",
+      "title": "Spacious entire home by the water",
+      "city": "Sacramento",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 136,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.81,
+      "review_count": 7
+    },
+    {
+      "property_id": "prp_gen_00173",
+      "title": "Cozy apartment with patio",
+      "city": "Santa Cruz",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 119,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "pet_friendly"
+      ],
+      "rating": 4.64,
+      "review_count": 105
+    },
+    {
+      "property_id": "prp_gen_00174",
+      "title": "Sunny private room near transit",
+      "city": "Napa",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 106,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating"
+      ],
+      "rating": 4.6,
+      "review_count": 209
+    },
+    {
+      "property_id": "prp_gen_00175",
+      "title": "Quiet private room by the park",
+      "city": "San Francisco",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 73,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer",
+        "ac",
+        "heating",
+        "pool",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 3.5,
+      "review_count": 67
+    },
+    {
+      "property_id": "prp_gen_00176",
+      "title": "Spacious apartment with parking",
+      "city": "Fresno",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 80,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.6,
+      "review_count": 170
+    },
+    {
+      "property_id": "prp_gen_00177",
+      "title": "Sunny apartment near downtown",
+      "city": "Palo Alto",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 306,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "pool",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 3.57,
+      "review_count": 225
+    },
+    {
+      "property_id": "prp_gen_00178",
+      "title": "Quiet condo by the park",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 6,
+      "nightly_price": 155,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking"
+      ],
+      "rating": 3.54,
+      "review_count": 110
+    },
+    {
+      "property_id": "prp_gen_00179",
+      "title": "Minimal private room near downtown",
+      "city": "San Francisco",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 144,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "heating",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 4.79,
+      "review_count": 90
+    },
+    {
+      "property_id": "prp_gen_00180",
+      "title": "Minimal cabin with patio",
+      "city": "San Jose",
+      "property_type": "cabin",
+      "capacity": 2,
+      "nightly_price": 125,
+      "amenities": [
+        "wifi",
+        "washer",
+        "ac",
+        "heating",
+        "pet_friendly",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.99,
+      "review_count": 106
+    },
+    {
+      "property_id": "prp_gen_00181",
+      "title": "Cozy condo by the water",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 5,
+      "nightly_price": 363,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "pool"
+      ],
+      "rating": 4.4,
+      "review_count": 210
+    },
+    {
+      "property_id": "prp_gen_00182",
+      "title": "Quiet entire home with a view",
+      "city": "San Jose",
+      "property_type": "entire_home",
+      "capacity": 6,
+      "nightly_price": 200,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "workspace"
+      ],
+      "rating": 5,
+      "review_count": 187
+    },
+    {
+      "property_id": "prp_gen_00183",
+      "title": "Cozy shared room by the water",
+      "city": "Santa Cruz",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 48,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.71,
+      "review_count": 143
+    },
+    {
+      "property_id": "prp_gen_00184",
+      "title": "Spacious apartment with patio",
+      "city": "Monterey",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 231,
+      "amenities": [
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 5,
+      "review_count": 243
+    },
+    {
+      "property_id": "prp_gen_00185",
+      "title": "Restored apartment near transit",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 4,
+      "nightly_price": 106,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating",
+        "pet_friendly"
+      ],
+      "rating": 4.93,
+      "review_count": 11
+    },
+    {
+      "property_id": "prp_gen_00186",
+      "title": "Garden apartment by the water",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 2,
+      "nightly_price": 169,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "ac",
+        "heating"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00187",
+      "title": "Spacious condo by the park",
+      "city": "South Lake Tahoe",
+      "property_type": "condo",
+      "capacity": 2,
+      "nightly_price": 241,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "heating",
+        "workspace"
+      ],
+      "rating": 3.76,
+      "review_count": 207
+    },
+    {
+      "property_id": "prp_gen_00188",
+      "title": "Modern condo with a view",
+      "city": "San Jose",
+      "property_type": "condo",
+      "capacity": 2,
+      "nightly_price": 149,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating"
+      ],
+      "rating": 4.95,
+      "review_count": 189
+    },
+    {
+      "property_id": "prp_gen_00189",
+      "title": "Sunny shared room with parking",
+      "city": "South Lake Tahoe",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 54,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "washer"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00190",
+      "title": "Quiet entire home with patio",
+      "city": "San Jose",
+      "property_type": "entire_home",
+      "capacity": 4,
+      "nightly_price": 252,
+      "amenities": [
+        "kitchen",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 5,
+      "review_count": 79
+    },
+    {
+      "property_id": "prp_gen_00191",
+      "title": "Restored private room by the water",
+      "city": "San Jose",
+      "property_type": "private_room",
+      "capacity": 2,
+      "nightly_price": 82,
+      "amenities": [
+        "wifi",
+        "ac",
+        "heating",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.7,
+      "review_count": 44
+    },
+    {
+      "property_id": "prp_gen_00192",
+      "title": "Modern private room with a view",
+      "city": "Santa Cruz",
+      "property_type": "private_room",
+      "capacity": 1,
+      "nightly_price": 126,
+      "amenities": [
+        "wifi",
+        "pool",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": 4.67,
+      "review_count": 43
+    },
+    {
+      "property_id": "prp_gen_00193",
+      "title": "Minimal entire home with patio",
+      "city": "San Jose",
+      "property_type": "entire_home",
+      "capacity": 10,
+      "nightly_price": 291,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 3.64,
+      "review_count": 214
+    },
+    {
+      "property_id": "prp_gen_00194",
+      "title": "Restored entire home with a view",
+      "city": "San Francisco",
+      "property_type": "entire_home",
+      "capacity": 5,
+      "nightly_price": 429,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "pet_friendly",
+        "workspace"
+      ],
+      "rating": null,
+      "review_count": 0
+    },
+    {
+      "property_id": "prp_gen_00195",
+      "title": "Garden cabin by the water",
+      "city": "Fresno",
+      "property_type": "cabin",
+      "capacity": 5,
+      "nightly_price": 115,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "ac",
+        "heating",
+        "workspace"
+      ],
+      "rating": 4.57,
+      "review_count": 197
+    },
+    {
+      "property_id": "prp_gen_00196",
+      "title": "Garden condo near transit",
+      "city": "Napa",
+      "property_type": "condo",
+      "capacity": 3,
+      "nightly_price": 227,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 4.32,
+      "review_count": 208
+    },
+    {
+      "property_id": "prp_gen_00197",
+      "title": "Restored entire home with a view",
+      "city": "South Lake Tahoe",
+      "property_type": "entire_home",
+      "capacity": 7,
+      "nightly_price": 175,
+      "amenities": [
+        "wifi",
+        "ac",
+        "workspace",
+        "self_checkin"
+      ],
+      "rating": 3.91,
+      "review_count": 52
+    },
+    {
+      "property_id": "prp_gen_00198",
+      "title": "Bright entire home with patio",
+      "city": "Monterey",
+      "property_type": "entire_home",
+      "capacity": 7,
+      "nightly_price": 355,
+      "amenities": [
+        "wifi",
+        "parking",
+        "washer",
+        "heating"
+      ],
+      "rating": 5,
+      "review_count": 193
+    },
+    {
+      "property_id": "prp_gen_00199",
+      "title": "Restored apartment with a view",
+      "city": "South Lake Tahoe",
+      "property_type": "apartment",
+      "capacity": 3,
+      "nightly_price": 185,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "parking",
+        "washer",
+        "ac",
+        "heating"
+      ],
+      "rating": 3.97,
+      "review_count": 185
+    },
+    {
+      "property_id": "prp_gen_00200",
+      "title": "Spacious shared room with a view",
+      "city": "South Lake Tahoe",
+      "property_type": "shared_room",
+      "capacity": 1,
+      "nightly_price": 66,
+      "amenities": [
+        "wifi",
+        "kitchen",
+        "pet_friendly",
+        "self_checkin"
+      ],
+      "rating": 3.59,
+      "review_count": 67
+    }
+  ]
+}
