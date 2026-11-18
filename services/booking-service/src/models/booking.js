@@ -1,6 +1,6 @@
 // Data access layer for reservations, nights, status history and idempotency keys.
 const { createHash } = require('crypto');
-const { getMysql } = require('@airbnb/common');
+const { getMysql, getMongo } = require('@airbnb/common');
 const { eachNight } = require('../pricing');
 
 const hashBody = (body) => createHash('sha256').update(JSON.stringify(body)).digest('hex');
@@ -66,11 +66,108 @@ async function recordStatus(conn, { reservationId, from, to, actorId, reason, tr
   );
 }
 
+// ---------------------------------------------------------------- reads (API doc §5)
+
+/** MySQL DATETIME(3) string ("2026-10-27 15:10:02.114") -> ISO 8601 UTC ("2026-10-27T15:10:02.114Z"). */
+const toIso = (dt) => (dt ? `${String(dt).replace(' ', 'T')}Z` : null);
+
+async function findReservation(reservationId) {
+  const [rows] = await getMysql().execute('SELECT * FROM reservations WHERE reservation_id = ?', [reservationId]);
+  return rows[0] || null;
+}
+
+async function listStatusHistory(reservationId) {
+  const [rows] = await getMysql().execute(
+    `SELECT from_status, to_status, actor_id, reason, at FROM reservation_status_history
+     WHERE reservation_id = ? ORDER BY at, id`,
+    [reservationId],
+  );
+  return rows.map((h) => ({
+    from_status: h.from_status, to_status: h.to_status, actor_id: h.actor_id, reason: h.reason, at: toIso(h.at),
+  }));
+}
+
+/**
+ * Accepted by the API but not yet written by the worker: the reservation only
+ * exists in the Idempotency-Key record. Lets /bookings/get answer PENDING.
+ */
+async function findPendingReservation(reservationId) {
+  const [rows] = await getMysql().execute(
+    "SELECT response_body FROM idempotency_keys WHERE JSON_UNQUOTE(JSON_EXTRACT(response_body, '$.data.reservation_id')) = ? LIMIT 1",
+    [reservationId],
+  );
+  return rows[0] ? { reservation_id: reservationId, status: 'PENDING' } : null;
+}
+
+async function findPropertyOwner(propertyId) {
+  const [rows] = await getMysql().execute('SELECT property_id, host_id FROM properties WHERE property_id = ?', [propertyId]);
+  return rows[0] || null;
+}
+
+/** Shared by byProperty / byGuest: build the WHERE tail, run count + page. */
+async function pagedReservations({ column, value, statuses, from, to, page, pageSize, select }) {
+  const where = [`${column} = ?`];
+  const params = [value];
+  if (statuses && statuses.length) {
+    where.push('status IN (?)');
+    params.push(statuses);
+  }
+  // Stays that overlap [from, to]: starts on or before `to`, ends after `from`.
+  if (to) { where.push('check_in <= ?'); params.push(to); }
+  if (from) { where.push('check_out > ?'); params.push(from); }
+  const clause = where.join(' AND ');
+
+  const db = getMysql();
+  const [[{ n }]] = await db.query(`SELECT COUNT(*) AS n FROM reservations WHERE ${clause}`, params);
+  const [rows] = await db.query(
+    `SELECT ${select} FROM reservations WHERE ${clause} ORDER BY check_in DESC, reservation_id LIMIT ? OFFSET ?`,
+    [...params, pageSize, (page - 1) * pageSize],
+  );
+  return { rows, total: Number(n) };
+}
+
+const listByProperty = (o) => pagedReservations({
+  ...o,
+  column: 'property_id',
+  value: o.propertyId,
+  select: 'reservation_id, guest_id, check_in, check_out, guest_count, total_price, status, booking_datetime',
+});
+
+const listByGuest = (o) => pagedReservations({
+  ...o,
+  column: 'guest_id',
+  value: o.guestId,
+  select: 'reservation_id, property_id, check_in, check_out, total_price, status, booking_datetime',
+});
+
+/**
+ * Which of these completed stays already have a review? Reviews live in MongoDB
+ * (Review Service). If Mongo is unreachable the prompt is simply shown again.
+ */
+async function reviewedReservationIds(reservationIds) {
+  if (!reservationIds.length) return new Set();
+  try {
+    const reviews = (await getMongo()).collection('reviews');
+    const docs = await reviews.find({ reservation_id: { $in: reservationIds } }, { projection: { reservation_id: 1 } }).toArray();
+    return new Set(docs.map((d) => d.reservation_id));
+  } catch {
+    return new Set();
+  }
+}
+
 module.exports = {
+  toIso,
   findPropertyForBooking,
   findIdempotentResponse,
   saveIdempotentResponse,
   insertReservationWithNights,
   insertRejectedReservation,
   recordStatus,
+  findReservation,
+  listStatusHistory,
+  findPendingReservation,
+  findPropertyOwner,
+  listByProperty,
+  listByGuest,
+  reviewedReservationIds,
 };

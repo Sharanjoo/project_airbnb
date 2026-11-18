@@ -21,6 +21,42 @@ const requestSchema = Joi.object({
   guest_message: Joi.string().max(1000).allow(''),
 });
 
+const STATUSES = ['REQUESTED', 'CONFIRMED', 'DECLINED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'COMPLETED'];
+const pagination = {
+  page: Joi.number().integer().min(1).default(1),
+  page_size: Joi.number().integer().min(1).max(100).default(20),
+};
+const statusFilter = Joi.array().items(Joi.string().valid(...STATUSES));
+
+const getSchema = Joi.object({ reservation_id: Joi.string().required() });
+const byPropertySchema = Joi.object({
+  property_id: Joi.string().required(),
+  status: statusFilter,
+  from: Joi.string().pattern(DATE),
+  to: Joi.string().pattern(DATE),
+  ...pagination,
+});
+const byGuestSchema = Joi.object({ guest_id: Joi.string().required(), status: statusFilter, ...pagination });
+
+/** Reservation row + history -> the API doc §13.3 response shape. */
+function shapeReservation(row, history, toIso) {
+  return {
+    reservation_id: row.reservation_id,
+    property_id: row.property_id,
+    guest_id: row.guest_id,
+    host_id: row.host_id,
+    check_in: row.check_in,
+    check_out: row.check_out,
+    guest_count: row.guest_count,
+    price_breakdown: row.price_breakdown,
+    booking_datetime: toIso(row.booking_datetime),
+    status: row.status,
+    cancellation_reason: row.cancellation_reason,
+    guest_message: row.guest_message,
+    status_history: history,
+  };
+}
+
 function requireIdempotencyKey(req, res, next) {
   const key = req.get('Idempotency-Key');
   if (!key || !UUID.test(key)) {
@@ -89,9 +125,75 @@ function buildRouter({ bus, repo = defaultRepo }) {
     }),
   );
 
-  r.post('/bookings/get', asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/get'); }));
-  r.post('/bookings/byProperty', requireRole('host'), asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/byProperty'); }));
-  r.post('/bookings/byGuest', requireRole('guest'), asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/byGuest'); }));
+  const reply = (req, res, data) => res.status(200).json({ data, trace_id: req.traceId });
+
+  // Guest or host on the booking (or admin). Before the worker has written the
+  // row, the Idempotency-Key record answers with PENDING so a client can poll.
+  r.post(
+    '/bookings/get',
+    requireRole('guest', 'host'),
+    validateBody(getSchema),
+    asyncHandler(async (req, res) => {
+      const row = await repo.findReservation(req.body.reservation_id);
+      if (!row) {
+        const pending = await repo.findPendingReservation(req.body.reservation_id);
+        if (pending) return reply(req, res, pending);
+        throw Errors.notFound('Reservation');
+      }
+      const { id, role } = req.user;
+      if (role !== 'admin' && row.guest_id !== id && row.host_id !== id) throw Errors.forbidden();
+      const history = await repo.listStatusHistory(row.reservation_id);
+      return reply(req, res, shapeReservation(row, history, repo.toIso));
+    }),
+  );
+
+  // Owning host only: reservations for one of their properties.
+  r.post(
+    '/bookings/byProperty',
+    requireRole('host'),
+    validateBody(byPropertySchema),
+    asyncHandler(async (req, res) => {
+      const { property_id, status, from, to, page, page_size } = req.body;
+      if (from && to && to < from) throw Errors.validation([{ field: 'to', issue: 'must not be before from' }]);
+      const property = await repo.findPropertyOwner(property_id);
+      if (!property) throw Errors.notFound('Property');
+      if (req.user.role !== 'admin' && property.host_id !== req.user.id) throw Errors.forbidden();
+
+      const { rows, total } = await repo.listByProperty({ propertyId: property_id, statuses: status, from, to, page, pageSize: page_size });
+      return reply(req, res, {
+        items: rows.map((x) => ({
+          reservation_id: x.reservation_id, guest_id: x.guest_id, check_in: x.check_in, check_out: x.check_out,
+          guest_count: x.guest_count, total: Number(x.total_price), status: x.status, booking_datetime: repo.toIso(x.booking_datetime),
+        })),
+        page, page_size, total,
+      });
+    }),
+  );
+
+  // Self only: a guest's own upcoming, past and cancelled stays, with review prompts.
+  r.post(
+    '/bookings/byGuest',
+    requireRole('guest'),
+    validateBody(byGuestSchema),
+    asyncHandler(async (req, res) => {
+      const { guest_id, status, page, page_size } = req.body;
+      if (req.user.role !== 'admin' && guest_id !== req.user.id) throw Errors.forbidden();
+
+      const { rows, total } = await repo.listByGuest({ guestId: guest_id, statuses: status, page, pageSize: page_size });
+      const reviewed = await repo.reviewedReservationIds(rows.filter((x) => x.status === 'COMPLETED').map((x) => x.reservation_id));
+      return reply(req, res, {
+        items: rows.map((x) => {
+          const item = {
+            reservation_id: x.reservation_id, property_id: x.property_id, check_in: x.check_in, check_out: x.check_out,
+            status: x.status, total: Number(x.total_price),
+          };
+          if (x.status === 'COMPLETED') item.review_due = !reviewed.has(x.reservation_id);
+          return item;
+        }),
+        page, page_size, total,
+      });
+    }),
+  );
   // approve / decline / cancel: same shape as request -> publish booking.approved|declined|cancel_requested, 202
   r.post('/bookings/approve', requireRole('host'), requireIdempotencyKey, asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/approve'); }));
   r.post('/bookings/decline', requireRole('host'), requireIdempotencyKey, asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/decline'); }));
