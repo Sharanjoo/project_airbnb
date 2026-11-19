@@ -42,6 +42,7 @@ function fakeRepo(overrides = {}) {
         ],
       };
     },
+    propertySummaries: async () => new Map([['prp_0001', { title: 'Downtown loft with parking', city: 'San Jose' }]]),
     reviewedReservationIds: async () => new Set(),
     ...overrides,
   };
@@ -190,6 +191,9 @@ test('byGuest: self sees own stays; review_due only on COMPLETED stays without a
     assert.strictEqual(res.status, 200);
     const { data } = await res.json();
     assert.strictEqual(data.total, 2);
+    assert.strictEqual(data.items[0].property_title, 'Downtown loft with parking');
+    assert.strictEqual(data.items[0].city, 'San Jose');
+    assert.strictEqual(data.items[1].property_title, null, 'a listing we cannot find still comes back');
     assert.strictEqual('review_due' in data.items[0], false);
     assert.strictEqual(data.items[1].review_due, true);
     assert.strictEqual(repo.calls.listByGuest.guestId, 'gst_0001');

@@ -254,11 +254,14 @@ function buildRouter({ bus, repo = defaultRepo }) {
 
       const { rows, total } = await repo.listByGuest({ guestId: guest_id, statuses: status, page, pageSize: page_size });
       const reviewed = await repo.reviewedReservationIds(rows.filter((x) => x.status === 'COMPLETED').map((x) => x.reservation_id));
+      const names = await repo.propertySummaries([...new Set(rows.map((x) => x.property_id))]);
       return reply(req, res, {
         items: rows.map((x) => {
+          // property_title and city are extra fields on top of the API doc, so the trips page can show names
           const item = {
             reservation_id: x.reservation_id, property_id: x.property_id, check_in: x.check_in, check_out: x.check_out,
             status: x.status, total: Number(x.total_price),
+            property_title: names.get(x.property_id)?.title ?? null, city: names.get(x.property_id)?.city ?? null,
           };
           if (x.status === 'COMPLETED') item.review_due = !reviewed.has(x.reservation_id);
           return item;

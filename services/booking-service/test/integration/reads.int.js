@@ -108,6 +108,14 @@ test('findActiveDuplicate: same guest, property and dates while REQUESTED or CON
   assert.strictEqual(await repo.findActiveDuplicate('gst_0001', 'prp_0001', day(50), day(52)), null, 'cancelled stays do not count');
 });
 
+test('propertySummaries returns title and city for known properties only', async () => {
+  const names = await repo.propertySummaries(['prp_0001', 'prp_nope']);
+  assert.strictEqual(names.get('prp_0001').title, 'Downtown loft with parking');
+  assert.strictEqual(names.get('prp_0001').city, 'San Jose');
+  assert.strictEqual(names.has('prp_nope'), false);
+  assert.strictEqual((await repo.propertySummaries([])).size, 0);
+});
+
 test('findPropertyOwner', async () => {
   assert.strictEqual((await repo.findPropertyOwner('prp_0001')).host_id, 'hst_0001');
   assert.strictEqual(await repo.findPropertyOwner('prp_nope'), null);

@@ -14,6 +14,13 @@ async function findPropertyForBooking(propertyId) {
 }
 
 // Keys are kept for 24 hours (API doc section 1).
+/** Title and city for a set of properties, as a Map keyed by property id. Lets trips show names without counting as a listing view. */
+async function propertySummaries(propertyIds) {
+  if (!propertyIds.length) return new Map();
+  const [rows] = await getMysql().query('SELECT property_id, title, city FROM properties WHERE property_id IN (?)', [propertyIds]);
+  return new Map(rows.map((r) => [r.property_id, { title: r.title, city: r.city }]));
+}
+
 /** An active (requested or confirmed) booking by the same guest for the same property and dates. */
 async function findActiveDuplicate(guestId, propertyId, checkIn, checkOut) {
   const [rows] = await getMysql().execute(
@@ -311,6 +318,7 @@ module.exports = {
   hashBody,
   toIso,
   findActiveDuplicate,
+  propertySummaries,
   findPropertyForBooking,
   findIdempotentResponse,
   saveIdempotentResponse,
