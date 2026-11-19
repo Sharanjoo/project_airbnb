@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const { createApp, logger } = require('@airbnb/common');
 const { buildRouter } = require('../src/routes');
 const { priceBreakdown, eachNight } = require('../src/pricing');
+const { hashBody } = require('../src/models/booking');
 
 const IDEM = '4f0b6a1e-1c22-4d7f-9a0a-8d2b7c3e5f10';
 const future = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
@@ -15,7 +16,8 @@ function fakeRepo(overrides = {}) {
     findPropertyForBooking: async (id) =>
       id === 'prp_0001' ? { property_id: id, host_id: 'hst_0001', status: 'active', capacity: 3, nightly_price: '189.00', cleaning_fee: '40.00' } : null,
     findIdempotentResponse: async (k) => saved.get(k) || null,
-    saveIdempotentResponse: async (k, _b, status, body) => saved.set(k, { response_status: status, response_body: body }),
+    saveIdempotentResponse: async (k, fp, status, body) =>
+      saved.set(k, { request_hash: hashBody(fp), response_status: status, response_body: body }),
     ...overrides,
   };
 }
@@ -63,6 +65,26 @@ test('same Idempotency-Key twice publishes once and returns the same reservation
     const b = await (await post(base, '/bookings/request', goodBody())).json();
     assert.strictEqual(published.length, 1);
     assert.strictEqual(a.data.reservation_id, b.data.reservation_id);
+  } finally { server.close(); }
+});
+
+test('same Idempotency-Key with a different body -> 409 IDEMPOTENCY_KEY_REUSED, nothing published', async () => {
+  const published = [];
+  const { server, base } = await start(fakeRepo(), { publish: async (t, e) => published.push(e) });
+  try {
+    assert.strictEqual((await post(base, '/bookings/request', goodBody())).status, 202);
+    const res = await post(base, '/bookings/request', { ...goodBody(), guest_count: 3 });
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual((await res.json()).error.code, 'IDEMPOTENCY_KEY_REUSED');
+    assert.strictEqual(published.length, 1);
+  } finally { server.close(); }
+});
+
+test('reservation_id is derived from the Idempotency-Key', async () => {
+  const { server, base } = await start(fakeRepo(), { publish: async () => {} });
+  try {
+    const body = await (await post(base, '/bookings/request', goodBody())).json();
+    assert.strictEqual(body.data.reservation_id, 'res_4f0b6a1e1c224d7f9a0a8d2b7c3e5f10');
   } finally { server.close(); }
 });
 

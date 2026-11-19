@@ -13,18 +13,24 @@ async function findPropertyForBooking(propertyId) {
   return rows[0] || null;
 }
 
+// Keys are remembered for 24 hours (API doc §1).
 async function findIdempotentResponse(key) {
   const [rows] = await getMysql().execute(
-    'SELECT response_status, response_body FROM idempotency_keys WHERE idempotency_key = ?',
+    `SELECT request_hash, response_status, response_body FROM idempotency_keys
+     WHERE idempotency_key = ? AND created_at > NOW(3) - INTERVAL 24 HOUR`,
     [key],
   );
   return rows[0] || null;
 }
 
-async function saveIdempotentResponse(key, requestBody, status, responseBody) {
-  await getMysql().execute(
+/** `fingerprint` is whatever identifies the request (route + body); it is hashed so a reused key with a different request can be detected. */
+async function saveIdempotentResponse(key, fingerprint, status, responseBody) {
+  const db = getMysql();
+  // An expired key still occupies the primary key; clear it so the key can be used again.
+  await db.execute('DELETE FROM idempotency_keys WHERE idempotency_key = ? AND created_at <= NOW(3) - INTERVAL 24 HOUR', [key]);
+  await db.execute(
     'INSERT IGNORE INTO idempotency_keys (idempotency_key, request_hash, response_status, response_body) VALUES (?, ?, ?, ?)',
-    [key, hashBody(requestBody), status, JSON.stringify(responseBody)],
+    [key, hashBody(fingerprint), status, JSON.stringify(responseBody)],
   );
 }
 
@@ -63,6 +69,107 @@ async function recordStatus(conn, { reservationId, from, to, actorId, reason, tr
     `INSERT INTO reservation_status_history (reservation_id, from_status, to_status, actor_id, reason, trace_id)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [reservationId, from, to, actorId, reason || null, traceId],
+  );
+}
+
+// ---------------------------------------------------------------- worker transitions (13.1, 13.2)
+
+/** Row lock: concurrent approve / cancel / expiry for one reservation run one after another. */
+async function lockReservation(conn, reservationId) {
+  const [rows] = await conn.execute('SELECT * FROM reservations WHERE reservation_id = ? FOR UPDATE', [reservationId]);
+  return rows[0] || null;
+}
+
+/**
+ * Move a reservation from one status to another. The `status = from` guard means
+ * a transition can only happen once. Returns true if a row changed.
+ */
+async function setStatus(conn, { reservationId, from, to, reason }) {
+  const [res] = await conn.execute(
+    `UPDATE reservations SET status = ?, cancellation_reason = COALESCE(?, cancellation_reason), version = version + 1
+     WHERE reservation_id = ? AND status = ?`,
+    [to, reason || null, reservationId, from],
+  );
+  return res.affectedRows === 1;
+}
+
+/** Free the nights so other guests can book them (and search shows them again). */
+async function releaseNights(conn, reservationId) {
+  await conn.execute('DELETE FROM reservation_nights WHERE reservation_id = ?', [reservationId]);
+}
+
+/**
+ * Shared lock on the property row. A host blocking dates (Property Service)
+ * takes the exclusive lock on the same row, so a booking and a block for the
+ * same property can never both pass their checks at the same time.
+ */
+async function lockPropertyShared(conn, propertyId) {
+  await conn.execute('SELECT property_id FROM properties WHERE property_id = ? FOR SHARE', [propertyId]);
+}
+
+/** Does a host block overlap the stay [checkIn, checkOut)? */
+async function hasBlockedDates(conn, propertyId, checkIn, checkOut) {
+  const [rows] = await conn.execute(
+    `SELECT 1 FROM availability_blocks
+     WHERE property_id = ? AND status = 'blocked' AND start_date < ? AND end_date > ? LIMIT 1`,
+    [propertyId, checkOut, checkIn],
+  );
+  return rows.length > 0;
+}
+
+/** The status a reservation had just before it moved into `toStatus` (used when an outcome event is re-sent). */
+async function previousStatusBefore(conn, reservationId, toStatus) {
+  const [rows] = await conn.execute(
+    'SELECT from_status FROM reservation_status_history WHERE reservation_id = ? AND to_status = ? ORDER BY id DESC LIMIT 1',
+    [reservationId, toStatus],
+  );
+  return rows[0] ? rows[0].from_status : null;
+}
+
+// ---------------------------------------------------------------- scheduler (EXPIRED, COMPLETED)
+
+const SCHEDULER_GROUP = 'booking-scheduler-cg';
+
+/** REQUESTED with no host action for `hours`, or whose check-in day has already arrived. */
+async function findExpirable(hours, limit = 100) {
+  const [rows] = await getMysql().query(
+    `SELECT reservation_id FROM reservations
+     WHERE status = 'REQUESTED' AND (booking_datetime <= NOW(3) - INTERVAL ? HOUR OR check_in <= CURDATE())
+     ORDER BY booking_datetime LIMIT ?`,
+    [hours, limit],
+  );
+  return rows.map((r) => r.reservation_id);
+}
+
+/** CONFIRMED stays whose check-out day has arrived. */
+async function findCompletable(limit = 100) {
+  const [rows] = await getMysql().query(
+    "SELECT reservation_id FROM reservations WHERE status = 'CONFIRMED' AND check_out <= CURDATE() ORDER BY check_out LIMIT ?",
+    [limit],
+  );
+  return rows.map((r) => r.reservation_id);
+}
+
+/**
+ * Reservations the scheduler moved to COMPLETED / EXPIRED whose announcement has
+ * no "published" marker yet (the scheduler may have died, or Kafka was down).
+ */
+async function findUnpublished(lookbackDays, limit = 100) {
+  const [rows] = await getMysql().query(
+    `SELECT r.* FROM reservations r
+     LEFT JOIN processed_events pe ON pe.consumer_group = ? AND pe.idempotency_key = CONCAT('published:', r.status, ':', r.reservation_id)
+     WHERE r.status IN ('COMPLETED', 'EXPIRED') AND r.check_out >= CURDATE() - INTERVAL ? DAY AND pe.idempotency_key IS NULL
+     ORDER BY r.check_out LIMIT ?`,
+    [SCHEDULER_GROUP, lookbackDays, limit],
+  );
+  return rows;
+}
+
+/** Remember that the announcement for this status was published. Safe to repeat. */
+async function markPublished(reservation, eventId, topic) {
+  await getMysql().execute(
+    'INSERT IGNORE INTO processed_events (consumer_group, idempotency_key, event_id, topic) VALUES (?, ?, ?, ?)',
+    [SCHEDULER_GROUP, `published:${reservation.status}:${reservation.reservation_id}`, eventId, topic],
   );
 }
 
@@ -156,6 +263,7 @@ async function reviewedReservationIds(reservationIds) {
 }
 
 module.exports = {
+  hashBody,
   toIso,
   findPropertyForBooking,
   findIdempotentResponse,
@@ -163,6 +271,17 @@ module.exports = {
   insertReservationWithNights,
   insertRejectedReservation,
   recordStatus,
+  lockReservation,
+  setStatus,
+  releaseNights,
+  lockPropertyShared,
+  hasBlockedDates,
+  previousStatusBefore,
+  SCHEDULER_GROUP,
+  findExpirable,
+  findCompletable,
+  findUnpublished,
+  markPublished,
   findReservation,
   listStatusHistory,
   findPendingReservation,

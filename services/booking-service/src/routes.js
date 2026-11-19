@@ -5,10 +5,11 @@
 const express = require('express');
 const Joi = require('joi');
 const {
-  asyncHandler, validateBody, requireRole, Errors, createEnvelope, newId, TOPICS,
+  asyncHandler, validateBody, requireRole, Errors, createEnvelope, TOPICS,
 } = require('@airbnb/common');
 const defaultRepo = require('./models/booking');
 const { priceBreakdown, nightsBetween } = require('./pricing');
+const { guestMayCancel, GUEST_CANCEL_WINDOW_HOURS } = require('./policy');
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/; // stay dates stay plain YYYY-MM-DD (API doc §1)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,6 +30,12 @@ const pagination = {
 const statusFilter = Joi.array().items(Joi.string().valid(...STATUSES));
 
 const getSchema = Joi.object({ reservation_id: Joi.string().required() });
+const approveSchema = Joi.object({ reservation_id: Joi.string().required() });
+const declineSchema = Joi.object({ reservation_id: Joi.string().required(), reason: Joi.string().trim().min(1).max(500).required() });
+const cancelSchema = Joi.object({
+  reservation_id: Joi.string().required(),
+  cancellation_reason: Joi.string().trim().min(1).max(500).required(),
+});
 const byPropertySchema = Joi.object({
   property_id: Joi.string().required(),
   status: statusFilter,
@@ -69,6 +76,61 @@ function requireIdempotencyKey(req, res, next) {
 function buildRouter({ bus, repo = defaultRepo }) {
   const r = express.Router();
 
+  // What makes two calls "the same request": the route and the validated body.
+  const fingerprint = (req) => ({ path: req.path, body: req.body });
+
+  /** Same key + same request -> replay the first answer. Same key + different request -> 409. */
+  async function replayIfSeen(req, res) {
+    const previous = await repo.findIdempotentResponse(req.idempotencyKey);
+    if (!previous) return false;
+    if (previous.request_hash !== defaultRepo.hashBody(fingerprint(req))) {
+      throw Errors.conflict('IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used with a different request.', [
+        { field: 'Idempotency-Key', issue: 'reused with a different body or endpoint' },
+      ]);
+    }
+    res.status(previous.response_status).json(previous.response_body);
+    return true;
+  }
+
+  async function mustFindReservation(id) {
+    const row = await repo.findReservation(id);
+    if (!row) throw Errors.notFound('Reservation');
+    return row;
+  }
+
+  function assertState(row, allowed, verb) {
+    if (!allowed.includes(row.status)) {
+      throw Errors.conflict('INVALID_STATE_TRANSITION', `Cannot ${verb} a ${row.status} reservation.`);
+    }
+  }
+
+  /** Publish the command event for the worker, remember the answer, reply 202. */
+  async function accept(req, res, { topic, row, payload, status }) {
+    const role = req.user.role;
+    const env = createEnvelope({
+      eventType: topic,
+      traceId: req.traceId,
+      actorId: req.user.id,
+      actorType: role === 'admin' ? 'admin' : role,
+      entityType: 'reservation',
+      entityId: row.reservation_id,
+      idempotencyKey: req.idempotencyKey,
+      payload,
+    });
+    try {
+      await bus.publish(topic, env, row.property_id); // key = property_id keeps one property's events in order
+    } catch (err) {
+      throw Errors.dependency('Kafka');
+    }
+    const body = { data: { reservation_id: row.reservation_id, status }, trace_id: req.traceId };
+    await repo.saveIdempotentResponse(req.idempotencyKey, fingerprint(req), 202, body);
+    return res.status(202).json(body);
+  }
+
+  const assertOwningHost = (req, row) => {
+    if (req.user.role !== 'admin' && row.host_id !== req.user.id) throw Errors.forbidden();
+  };
+
   r.post(
     '/bookings/request',
     requireRole('guest'),
@@ -83,15 +145,16 @@ function buildRouter({ bus, repo = defaultRepo }) {
       if (!Number.isInteger(nights) || nights < 1 || nights > 30) throw Errors.validation([{ field: 'check_out', issue: 'stay must be 1 to 30 nights' }]);
 
       // A repeat of the same Idempotency-Key returns the original answer.
-      const previous = await repo.findIdempotentResponse(req.idempotencyKey);
-      if (previous) return res.status(previous.response_status).json(previous.response_body);
+      if (await replayIfSeen(req, res)) return;
 
       const property = await repo.findPropertyForBooking(property_id);
       if (!property) throw Errors.notFound('Property');
       if (property.status !== 'active') throw Errors.gone();
       if (guest_count > property.capacity) throw Errors.businessRule(`Property sleeps at most ${property.capacity}.`);
 
-      const reservationId = newId('res');
+      // Derived from the Idempotency-Key, so two simultaneous calls with the same
+      // key produce the same reservation_id (and the worker applies it once).
+      const reservationId = `res_${req.idempotencyKey.replace(/-/g, '')}`;
       const env = createEnvelope({
         eventType: TOPICS.BOOKING_REQUESTED,
         traceId: req.traceId,
@@ -120,7 +183,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
       }
 
       const body = { data: { reservation_id: reservationId, status: 'PENDING' }, trace_id: req.traceId };
-      await repo.saveIdempotentResponse(req.idempotencyKey, req.body, 202, body);
+      await repo.saveIdempotentResponse(req.idempotencyKey, fingerprint(req), 202, body);
       return res.status(202).json(body);
     }),
   );
@@ -194,10 +257,63 @@ function buildRouter({ bus, repo = defaultRepo }) {
       });
     }),
   );
-  // approve / decline / cancel: same shape as request -> publish booking.approved|declined|cancel_requested, 202
-  r.post('/bookings/approve', requireRole('host'), requireIdempotencyKey, asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/approve'); }));
-  r.post('/bookings/decline', requireRole('host'), requireIdempotencyKey, asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/decline'); }));
-  r.post('/bookings/cancel', requireRole('guest', 'host'), requireIdempotencyKey, asyncHandler(async () => { throw Errors.notImplemented('POST /bookings/cancel'); }));
+  // Host approves a pending request. The worker confirms it and publishes booking.confirmed.
+  r.post(
+    '/bookings/approve',
+    requireRole('host'),
+    requireIdempotencyKey,
+    validateBody(approveSchema),
+    asyncHandler(async (req, res) => {
+      if (await replayIfSeen(req, res)) return;
+      const row = await mustFindReservation(req.body.reservation_id);
+      assertOwningHost(req, row);
+      assertState(row, ['REQUESTED'], 'approve');
+      return accept(req, res, {
+        topic: TOPICS.BOOKING_APPROVED, row, status: 'APPROVING',
+        payload: { reservation_id: row.reservation_id, host_id: row.host_id },
+      });
+    }),
+  );
+
+  // Host declines a pending request. The worker releases the nights.
+  r.post(
+    '/bookings/decline',
+    requireRole('host'),
+    requireIdempotencyKey,
+    validateBody(declineSchema),
+    asyncHandler(async (req, res) => {
+      if (await replayIfSeen(req, res)) return;
+      const row = await mustFindReservation(req.body.reservation_id);
+      assertOwningHost(req, row);
+      assertState(row, ['REQUESTED'], 'decline');
+      return accept(req, res, {
+        topic: TOPICS.BOOKING_DECLINED, row, status: 'DECLINING',
+        payload: { reservation_id: row.reservation_id, host_id: row.host_id, reason: req.body.reason },
+      });
+    }),
+  );
+
+  // Guest on the booking or its host. Guests cannot cancel within 24 h of check-in (policy.js).
+  r.post(
+    '/bookings/cancel',
+    requireRole('guest', 'host'),
+    requireIdempotencyKey,
+    validateBody(cancelSchema),
+    asyncHandler(async (req, res) => {
+      if (await replayIfSeen(req, res)) return;
+      const row = await mustFindReservation(req.body.reservation_id);
+      const { id, role } = req.user;
+      if (role !== 'admin' && row.guest_id !== id && row.host_id !== id) throw Errors.forbidden();
+      assertState(row, ['REQUESTED', 'CONFIRMED'], 'cancel');
+      if (role === 'guest' && !guestMayCancel(row.check_in)) {
+        throw Errors.businessRule(`Guests cannot cancel within ${GUEST_CANCEL_WINDOW_HOURS} hours of check-in.`);
+      }
+      return accept(req, res, {
+        topic: TOPICS.BOOKING_CANCEL_REQUESTED, row, status: 'CANCELLING',
+        payload: { reservation_id: row.reservation_id, requested_by: id, cancellation_reason: req.body.cancellation_reason },
+      });
+    }),
+  );
 
   return r;
 }
