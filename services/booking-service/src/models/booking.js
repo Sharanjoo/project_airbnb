@@ -1,4 +1,4 @@
-// Data access layer for reservations, nights, status history and idempotency keys.
+// Database access for reservations, nights, status history and idempotency keys.
 const { createHash } = require('crypto');
 const { getMysql, getMongo } = require('@airbnb/common');
 const { eachNight } = require('../pricing');
@@ -13,7 +13,17 @@ async function findPropertyForBooking(propertyId) {
   return rows[0] || null;
 }
 
-// Keys are remembered for 24 hours (API doc §1).
+// Keys are kept for 24 hours (API doc section 1).
+/** An active (requested or confirmed) booking by the same guest for the same property and dates. */
+async function findActiveDuplicate(guestId, propertyId, checkIn, checkOut) {
+  const [rows] = await getMysql().execute(
+    `SELECT reservation_id FROM reservations
+     WHERE guest_id = ? AND property_id = ? AND check_in = ? AND check_out = ? AND status IN ('REQUESTED', 'CONFIRMED') LIMIT 1`,
+    [guestId, propertyId, checkIn, checkOut],
+  );
+  return rows[0] || null;
+}
+
 async function findIdempotentResponse(key) {
   const [rows] = await getMysql().execute(
     `SELECT request_hash, response_status, response_body FROM idempotency_keys
@@ -23,20 +33,48 @@ async function findIdempotentResponse(key) {
   return rows[0] || null;
 }
 
-/** `fingerprint` is whatever identifies the request (route + body); it is hashed so a reused key with a different request can be detected. */
-async function saveIdempotentResponse(key, fingerprint, status, responseBody) {
+// idempotency_keys.actor_id was added after the first schema. New databases get it from
+// 001_schema.sql, and an older one is upgraded here the first time it is needed.
+let schemaReady = null;
+function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      const db = getMysql();
+      const [cols] = await db.execute(
+        `SELECT 1 FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'idempotency_keys' AND COLUMN_NAME = 'actor_id'`,
+      );
+      if (!cols.length) {
+        try {
+          await db.execute('ALTER TABLE idempotency_keys ADD COLUMN actor_id VARCHAR(40) NULL');
+        } catch (err) {
+          if (err.code !== 'ER_DUP_FIELDNAME') throw err; // another service already added it
+        }
+      }
+    })().catch((err) => { schemaReady = null; throw err; });
+  }
+  return schemaReady;
+}
+
+/**
+ * The fingerprint identifies the request (route and body). It is hashed so a reused key
+ * with a different request can be caught. actorId is who made the request, and only that
+ * person can look at a booking that is still pending.
+ */
+async function saveIdempotentResponse(key, fingerprint, status, responseBody, actorId = null) {
+  await ensureSchema();
   const db = getMysql();
-  // An expired key still occupies the primary key; clear it so the key can be used again.
+  // An expired key still holds the primary key, so remove it before saving again.
   await db.execute('DELETE FROM idempotency_keys WHERE idempotency_key = ? AND created_at <= NOW(3) - INTERVAL 24 HOUR', [key]);
   await db.execute(
-    'INSERT IGNORE INTO idempotency_keys (idempotency_key, request_hash, response_status, response_body) VALUES (?, ?, ?, ?)',
-    [key, hashBody(fingerprint), status, JSON.stringify(responseBody)],
+    'INSERT IGNORE INTO idempotency_keys (idempotency_key, request_hash, response_status, response_body, actor_id) VALUES (?, ?, ?, ?, ?)',
+    [key, hashBody(fingerprint), status, JSON.stringify(responseBody), actorId],
   );
 }
 
 /**
- * Insert reservation + one row per night in the caller's transaction.
- * Throws ER_DUP_ENTRY if any night is already taken (13.1 guarantee).
+ * Inserts the reservation and one row per night in the caller's transaction.
+ * Throws ER_DUP_ENTRY if any night is already taken.
  */
 async function insertReservationWithNights(conn, p, status, traceId) {
   await conn.execute(
@@ -72,17 +110,17 @@ async function recordStatus(conn, { reservationId, from, to, actorId, reason, tr
   );
 }
 
-// ---------------------------------------------------------------- worker transitions (13.1, 13.2)
+// Helpers for the worker: changing a booking's status
 
-/** Row lock: concurrent approve / cancel / expiry for one reservation run one after another. */
+/** Locks the row so two changes to the same reservation run one after the other. */
 async function lockReservation(conn, reservationId) {
   const [rows] = await conn.execute('SELECT * FROM reservations WHERE reservation_id = ? FOR UPDATE', [reservationId]);
   return rows[0] || null;
 }
 
 /**
- * Move a reservation from one status to another. The `status = from` guard means
- * a transition can only happen once. Returns true if a row changed.
+ * Changes the status from one value to another. The status = from check means a
+ * change can only happen once. Returns true if a row changed.
  */
 async function setStatus(conn, { reservationId, from, to, reason }) {
   const [res] = await conn.execute(
@@ -93,21 +131,21 @@ async function setStatus(conn, { reservationId, from, to, reason }) {
   return res.affectedRows === 1;
 }
 
-/** Free the nights so other guests can book them (and search shows them again). */
+/** Frees the nights so others can book them and search shows them again. */
 async function releaseNights(conn, reservationId) {
   await conn.execute('DELETE FROM reservation_nights WHERE reservation_id = ?', [reservationId]);
 }
 
 /**
- * Shared lock on the property row. A host blocking dates (Property Service)
- * takes the exclusive lock on the same row, so a booking and a block for the
- * same property can never both pass their checks at the same time.
+ * Takes a shared lock on the property row. A host blocking dates takes the exclusive
+ * lock on the same row, so a booking and a block on one property can never both pass
+ * their checks at the same time.
  */
 async function lockPropertyShared(conn, propertyId) {
   await conn.execute('SELECT property_id FROM properties WHERE property_id = ? FOR SHARE', [propertyId]);
 }
 
-/** Does a host block overlap the stay [checkIn, checkOut)? */
+/** Does a host block overlap the stay from checkIn up to checkOut? */
 async function hasBlockedDates(conn, propertyId, checkIn, checkOut) {
   const [rows] = await conn.execute(
     `SELECT 1 FROM availability_blocks
@@ -117,7 +155,7 @@ async function hasBlockedDates(conn, propertyId, checkIn, checkOut) {
   return rows.length > 0;
 }
 
-/** The status a reservation had just before it moved into `toStatus` (used when an outcome event is re-sent). */
+/** The status a booking had just before it moved to toStatus. Used when an outcome event is sent again. */
 async function previousStatusBefore(conn, reservationId, toStatus) {
   const [rows] = await conn.execute(
     'SELECT from_status FROM reservation_status_history WHERE reservation_id = ? AND to_status = ? ORDER BY id DESC LIMIT 1',
@@ -126,33 +164,37 @@ async function previousStatusBefore(conn, reservationId, toStatus) {
   return rows[0] ? rows[0].from_status : null;
 }
 
-// ---------------------------------------------------------------- scheduler (EXPIRED, COMPLETED)
+// Helpers for the scheduler: expiring and completing bookings
 
 const SCHEDULER_GROUP = 'booking-scheduler-cg';
 
-/** REQUESTED with no host action for `hours`, or whose check-in day has already arrived. */
-async function findExpirable(hours, limit = 100) {
+/**
+ * Bookings that might need to expire: pending with no host action for the given hours,
+ * or with a check-in date that has arrived (local date). The scheduler makes the exact
+ * call under the row lock, including the check-in time.
+ */
+async function findExpirable(hours, localToday, limit = 100) {
   const [rows] = await getMysql().query(
     `SELECT reservation_id FROM reservations
-     WHERE status = 'REQUESTED' AND (booking_datetime <= NOW(3) - INTERVAL ? HOUR OR check_in <= CURDATE())
+     WHERE status = 'REQUESTED' AND (booking_datetime <= NOW(3) - INTERVAL ? HOUR OR check_in <= ?)
      ORDER BY booking_datetime LIMIT ?`,
-    [hours, limit],
+    [hours, localToday, limit],
   );
   return rows.map((r) => r.reservation_id);
 }
 
-/** CONFIRMED stays whose check-out day has arrived. */
-async function findCompletable(limit = 100) {
+/** Bookings that might be complete: confirmed, with a check-out date (local) that has arrived. */
+async function findCompletable(localToday, limit = 100) {
   const [rows] = await getMysql().query(
-    "SELECT reservation_id FROM reservations WHERE status = 'CONFIRMED' AND check_out <= CURDATE() ORDER BY check_out LIMIT ?",
-    [limit],
+    "SELECT reservation_id FROM reservations WHERE status = 'CONFIRMED' AND check_out <= ? ORDER BY check_out LIMIT ?",
+    [localToday, limit],
   );
   return rows.map((r) => r.reservation_id);
 }
 
 /**
- * Reservations the scheduler moved to COMPLETED / EXPIRED whose announcement has
- * no "published" marker yet (the scheduler may have died, or Kafka was down).
+ * Expired or completed bookings that have no published marker yet, because the
+ * scheduler died or Kafka was down.
  */
 async function findUnpublished(lookbackDays, limit = 100) {
   const [rows] = await getMysql().query(
@@ -165,7 +207,7 @@ async function findUnpublished(lookbackDays, limit = 100) {
   return rows;
 }
 
-/** Remember that the announcement for this status was published. Safe to repeat. */
+/** Saves that the announcement for this status was sent. Safe to repeat. */
 async function markPublished(reservation, eventId, topic) {
   await getMysql().execute(
     'INSERT IGNORE INTO processed_events (consumer_group, idempotency_key, event_id, topic) VALUES (?, ?, ?, ?)',
@@ -173,9 +215,9 @@ async function markPublished(reservation, eventId, topic) {
   );
 }
 
-// ---------------------------------------------------------------- reads (API doc §5)
+// Read queries (API doc section 5)
 
-/** MySQL DATETIME(3) string ("2026-10-27 15:10:02.114") -> ISO 8601 UTC ("2026-10-27T15:10:02.114Z"). */
+/** Turns a MySQL datetime string like 2026-10-27 15:10:02.114 into ISO UTC like 2026-10-27T15:10:02.114Z. */
 const toIso = (dt) => (dt ? `${String(dt).replace(' ', 'T')}Z` : null);
 
 async function findReservation(reservationId) {
@@ -195,15 +237,18 @@ async function listStatusHistory(reservationId) {
 }
 
 /**
- * Accepted by the API but not yet written by the worker: the reservation only
- * exists in the Idempotency-Key record. Lets /bookings/get answer PENDING.
+ * Accepted by the API but not written by the worker yet, so it only exists in the
+ * Idempotency-Key record. This lets /bookings/get answer PENDING.
  */
 async function findPendingReservation(reservationId) {
+  await ensureSchema();
   const [rows] = await getMysql().execute(
-    "SELECT response_body FROM idempotency_keys WHERE JSON_UNQUOTE(JSON_EXTRACT(response_body, '$.data.reservation_id')) = ? LIMIT 1",
+    `SELECT actor_id FROM idempotency_keys
+     WHERE JSON_UNQUOTE(JSON_EXTRACT(response_body, '$.data.reservation_id')) = ?
+       AND JSON_UNQUOTE(JSON_EXTRACT(response_body, '$.data.status')) = 'PENDING' LIMIT 1`,
     [reservationId],
   );
-  return rows[0] ? { reservation_id: reservationId, status: 'PENDING' } : null;
+  return rows[0] ? { reservation_id: reservationId, status: 'PENDING', owner_id: rows[0].actor_id } : null;
 }
 
 async function findPropertyOwner(propertyId) {
@@ -211,7 +256,7 @@ async function findPropertyOwner(propertyId) {
   return rows[0] || null;
 }
 
-/** Shared by byProperty / byGuest: build the WHERE tail, run count + page. */
+/** Shared by byProperty and byGuest. Builds the WHERE clause, then runs the count and the page. */
 async function pagedReservations({ column, value, statuses, from, to, page, pageSize, select }) {
   const where = [`${column} = ?`];
   const params = [value];
@@ -219,7 +264,7 @@ async function pagedReservations({ column, value, statuses, from, to, page, page
     where.push('status IN (?)');
     params.push(statuses);
   }
-  // Stays that overlap [from, to]: starts on or before `to`, ends after `from`.
+  // Stays that overlap from and to: they start on or before to and end after from.
   if (to) { where.push('check_in <= ?'); params.push(to); }
   if (from) { where.push('check_out > ?'); params.push(from); }
   const clause = where.join(' AND ');
@@ -249,7 +294,7 @@ const listByGuest = (o) => pagedReservations({
 
 /**
  * Which of these completed stays already have a review? Reviews live in MongoDB
- * (Review Service). If Mongo is unreachable the prompt is simply shown again.
+ * (review service). If Mongo is down we just show the prompt again.
  */
 async function reviewedReservationIds(reservationIds) {
   if (!reservationIds.length) return new Set();
@@ -265,6 +310,7 @@ async function reviewedReservationIds(reservationIds) {
 module.exports = {
   hashBody,
   toIso,
+  findActiveDuplicate,
   findPropertyForBooking,
   findIdempotentResponse,
   saveIdempotentResponse,

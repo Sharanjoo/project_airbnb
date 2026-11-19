@@ -1,5 +1,5 @@
 process.env.NODE_ENV = 'test';
-// /bookings/get, /bookings/byProperty, /bookings/byGuest (API doc §5, §13.3).
+// Tests for /bookings/get, /bookings/byProperty and /bookings/byGuest.
 const test = require('node:test');
 const assert = require('node:assert');
 const { createApp, logger } = require('@airbnb/common');
@@ -23,7 +23,7 @@ function fakeRepo(overrides = {}) {
       { from_status: null, to_status: 'REQUESTED', actor_id: 'svc:booking-worker', reason: null, at: '2026-10-27T15:10:02.000Z' },
       { from_status: 'REQUESTED', to_status: 'CONFIRMED', actor_id: 'hst_0001', reason: null, at: '2026-10-27T17:45:10.000Z' },
     ],
-    findPendingReservation: async (id) => (id === 'res_pending' ? { reservation_id: id, status: 'PENDING' } : null),
+    findPendingReservation: async (id) => (id === 'res_pending' ? { reservation_id: id, status: 'PENDING', owner_id: 'gst_0001' } : null),
     findPropertyOwner: async (id) => (id === 'prp_0001' ? { property_id: id, host_id: 'hst_0001' } : null),
     listByProperty: async (o) => {
       calls.listByProperty = o;
@@ -64,7 +64,7 @@ const call = (base, path, body, user = { id: 'gst_0001', role: 'guest' }) =>
 
 const HOST = { id: 'hst_0001', role: 'host' };
 
-// ------------------------------------------------------------------ /bookings/get
+// /bookings/get
 
 test('get: the guest on the booking sees the reservation with status_history', async () => {
   const { server, base } = await start(fakeRepo());
@@ -88,7 +88,7 @@ test('get: the host of the booking can read it', async () => {
   } finally { server.close(); }
 });
 
-test('get: another guest -> 403', async () => {
+test('get: another guest returns 403', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     const res = await call(base, '/bookings/get', { reservation_id: 'res_51a' }, { id: 'gst_0002', role: 'guest' });
@@ -97,14 +97,14 @@ test('get: another guest -> 403', async () => {
   } finally { server.close(); }
 });
 
-test('get: a host who does not own the booking -> 403', async () => {
+test('get: a host who does not own the booking returns 403', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     assert.strictEqual((await call(base, '/bookings/get', { reservation_id: 'res_51a' }, { id: 'hst_0002', role: 'host' })).status, 403);
   } finally { server.close(); }
 });
 
-test('get: unknown reservation -> 404', async () => {
+test('get: unknown reservation returns 404', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     const res = await call(base, '/bookings/get', { reservation_id: 'res_nope' });
@@ -113,7 +113,7 @@ test('get: unknown reservation -> 404', async () => {
   } finally { server.close(); }
 });
 
-test('get: accepted but not yet written by the worker -> 200 PENDING', async () => {
+test('get: accepted but not yet written by the worker returns 200 PENDING for the guest who asked, without internals', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     const res = await call(base, '/bookings/get', { reservation_id: 'res_pending' });
@@ -122,7 +122,16 @@ test('get: accepted but not yet written by the worker -> 200 PENDING', async () 
   } finally { server.close(); }
 });
 
-test('get: missing reservation_id and unknown fields -> 400', async () => {
+test('get: a pending booking is private to the guest who made it returns 403 for anyone else', async () => {
+  const { server, base } = await start(fakeRepo());
+  try {
+    assert.strictEqual((await call(base, '/bookings/get', { reservation_id: 'res_pending' }, { id: 'gst_0002', role: 'guest' })).status, 403);
+    assert.strictEqual((await call(base, '/bookings/get', { reservation_id: 'res_pending' }, HOST)).status, 403);
+    assert.strictEqual((await call(base, '/bookings/get', { reservation_id: 'res_pending' }, { id: 'adm_1', role: 'admin' })).status, 200);
+  } finally { server.close(); }
+});
+
+test('get: missing reservation_id and unknown fields returns 400', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     assert.strictEqual((await call(base, '/bookings/get', {})).status, 400);
@@ -130,7 +139,7 @@ test('get: missing reservation_id and unknown fields -> 400', async () => {
   } finally { server.close(); }
 });
 
-// ------------------------------------------------------------------ /bookings/byProperty
+// /bookings/byProperty
 
 test('byProperty: owning host gets a page with defaults page=1 page_size=20', async () => {
   const repo = fakeRepo();
@@ -147,14 +156,14 @@ test('byProperty: owning host gets a page with defaults page=1 page_size=20', as
   } finally { server.close(); }
 });
 
-test('byProperty: a host who does not own the property -> 403', async () => {
+test('byProperty: a host who does not own the property returns 403', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     assert.strictEqual((await call(base, '/bookings/byProperty', { property_id: 'prp_0001' }, { id: 'hst_0002', role: 'host' })).status, 403);
   } finally { server.close(); }
 });
 
-test('byProperty: unknown property -> 404; guest role -> 403', async () => {
+test('byProperty: unknown property returns 404; guest role returns 403', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     assert.strictEqual((await call(base, '/bookings/byProperty', { property_id: 'prp_nope' }, HOST)).status, 404);
@@ -162,7 +171,7 @@ test('byProperty: unknown property -> 404; guest role -> 403', async () => {
   } finally { server.close(); }
 });
 
-test('byProperty: bad status, page_size over 100, and to before from -> 400', async () => {
+test('byProperty: bad status, page_size over 100, and to before from returns 400', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     assert.strictEqual((await call(base, '/bookings/byProperty', { property_id: 'prp_0001', status: ['NOPE'] }, HOST)).status, 400);
@@ -171,7 +180,7 @@ test('byProperty: bad status, page_size over 100, and to before from -> 400', as
   } finally { server.close(); }
 });
 
-// ------------------------------------------------------------------ /bookings/byGuest
+// /bookings/byGuest
 
 test('byGuest: self sees own stays; review_due only on COMPLETED stays without a review', async () => {
   const repo = fakeRepo();
@@ -195,7 +204,7 @@ test('byGuest: a completed stay that already has a review is not due', async () 
   } finally { server.close(); }
 });
 
-test('byGuest: asking for another guest -> 403; host role -> 403', async () => {
+test('byGuest: asking for another guest returns 403; host role returns 403', async () => {
   const { server, base } = await start(fakeRepo());
   try {
     assert.strictEqual((await call(base, '/bookings/byGuest', { guest_id: 'gst_0002' })).status, 403);

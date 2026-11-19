@@ -1,5 +1,5 @@
-// Scheduler against real MySQL: EXPIRED after 24 h, COMPLETED after check-out,
-// announcements that survive a Kafka outage, and several schedulers at once.
+// Scheduler tests against real MySQL: expiring after 24 hours, completing after check-out,
+// announcements that survive a Kafka outage, and several schedulers running at once.
 //   npm run infra:up   then   npm run test:db -w services/booking-service
 process.env.NODE_ENV = 'test';
 const test = require('node:test');
@@ -10,10 +10,12 @@ const worker = require('../../src/worker');
 const scheduler = require('../../src/scheduler');
 const repo = require('../../src/models/booking');
 const { priceBreakdown } = require('../../src/pricing');
+const { localDate, checkInInstant, checkOutInstant } = require('../../src/timeutil');
 
 const db = () => getMysql();
-const PROPERTY = 'prp_0002'; // other integration files use prp_0001
-const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+const PROPERTY = 'prp_0002'; // the other integration files use prp_0001
+// Dates on the listing's clock (America/Los_Angeles), the same one the scheduler uses.
+const day = (offset) => localDate(Date.now() + offset * 86400000);
 
 let published = [];
 let failPublish = false;
@@ -23,7 +25,7 @@ const bus = {
     published.push({ topic, env, key });
   },
 };
-worker.bus.publish = async () => {}; // the worker's own events are not what this file looks at
+worker.bus.publish = async () => {}; // this file does not look at the worker's own events
 const sentFor = (id, topic) => published.filter((p) => p.topic === topic && p.env.payload.reservation_id === id);
 
 const created = [];
@@ -62,7 +64,7 @@ const historyOf = async (id) => (await repo.listStatusHistory(id)).map((h) => `$
 const markerOf = async (status, id) => (await db().execute(
   'SELECT 1 FROM processed_events WHERE consumer_group = ? AND idempotency_key = ?', [repo.SCHEDULER_GROUP, `published:${status}:${id}`]))[0].length;
 
-// ------------------------------------------------------------------ EXPIRED
+// expiring
 
 test('a request with no host action for 25 h expires, frees its nights and announces booking.cancelled(EXPIRED)', async () => {
   const stale = await reserve(day(30), day(32), { hoursOld: 25 });
@@ -91,10 +93,14 @@ test('a request with no host action for 25 h expires, frees its nights and annou
   assert.strictEqual(await nightsOf(fresh), 2);
 });
 
-test('a request whose check-in day has arrived without a host reply expires too', async () => {
-  const id = await reserve(day(0), day(2));
-  await scheduler.runOnce(bus);
+test('a pending request expires when check-in time (15:00 local) arrives, not before', async () => {
+  const checkIn = day(0);
+  const id = await reserve(checkIn, day(2));
+  await scheduler.runOnce(bus, checkInInstant(checkIn) - 3600000); // 14:00 on check-in day
+  assert.strictEqual(await statusOf(id), 'REQUESTED', 'still has until 15:00');
+  await scheduler.runOnce(bus, checkInInstant(checkIn) + 60000); // 15:01
   assert.strictEqual(await statusOf(id), 'EXPIRED');
+  assert.strictEqual(await nightsOf(id), 0);
 });
 
 test('a host who approved in time keeps the booking: the scheduler never expires a CONFIRMED stay', async () => {
@@ -105,7 +111,7 @@ test('a host who approved in time keeps the booking: the scheduler never expires
   assert.strictEqual(await nightsOf(id), 2);
 });
 
-// ------------------------------------------------------------------ COMPLETED
+// completing
 
 test('a confirmed stay whose check-out day has arrived becomes COMPLETED and announces booking.completed once', async () => {
   const id = await reserve(day(-5), day(-3));
@@ -128,17 +134,21 @@ test('a confirmed stay whose check-out day has arrived becomes COMPLETED and ann
   assert.strictEqual(sentFor(id, 'booking.completed').length, 0, 'announced once, not on every pass');
 });
 
-test('check-out on the day itself already completes the stay; a stay still in progress does not', async () => {
-  const ends = await reserve(day(-2), day(0));
+test('a stay completes at check-out time (11:00 local) on its last day, not before; a stay still in progress does not', async () => {
+  const checkOut = day(0);
+  const ends = await reserve(day(-2), checkOut);
   const ongoing = await reserve(day(0), day(2));
   await approve(ends);
   await approve(ongoing);
-  await scheduler.runOnce(bus);
+
+  await scheduler.runOnce(bus, checkOutInstant(checkOut) - 3600000); // 10:00 on check-out day
+  assert.strictEqual(await statusOf(ends), 'CONFIRMED', 'the guest is still entitled to the room until 11:00');
+  await scheduler.runOnce(bus, checkOutInstant(checkOut) + 3600000); // 12:00
   assert.strictEqual(await statusOf(ends), 'COMPLETED');
   assert.strictEqual(await statusOf(ongoing), 'CONFIRMED');
 });
 
-// ------------------------------------------------------------------ crash and outage safety
+// crashes and outages
 
 test('Kafka down during the announcement: the status is saved, nothing is lost, the next pass announces it', async () => {
   const id = await reserve(day(-8), day(-6));
@@ -165,7 +175,7 @@ test('three schedulers at the same moment: each change happens exactly once', as
   await Promise.all([scheduler.runOnce(bus), scheduler.runOnce(bus), scheduler.runOnce(bus)]);
   assert.deepStrictEqual(await historyOf(stale), ['null>REQUESTED', 'REQUESTED>EXPIRED']);
   assert.deepStrictEqual(await historyOf(done), ['null>REQUESTED', 'REQUESTED>CONFIRMED', 'CONFIRMED>COMPLETED']);
-  // an announcement may be sent more than once by racing schedulers; it always carries the same key
+  // racing schedulers may send an announcement more than once, but it always has the same key
   const keys = new Set(sentFor(stale, 'booking.cancelled').map((p) => p.env.idempotency_key));
   assert.strictEqual(keys.size, 1);
 });

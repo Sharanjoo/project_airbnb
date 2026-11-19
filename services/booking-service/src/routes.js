@@ -1,7 +1,6 @@
-// Booking Service API (API doc §5). Owner: Slice 3.
-// /bookings/request is implemented end to end as the REFERENCE PATTERN for the
-// team: validate -> check Idempotency-Key -> look up -> publish event -> 202.
-// The Booking Worker (src/worker.js) consumes the event and writes MySQL.
+// Booking service API (API doc section 5). This is the slice 3 file.
+// The API checks the request, publishes an event and answers 202.
+// The booking worker (worker.js) picks the event up and writes to MySQL.
 const express = require('express');
 const Joi = require('joi');
 const {
@@ -11,7 +10,7 @@ const defaultRepo = require('./models/booking');
 const { priceBreakdown, nightsBetween } = require('./pricing');
 const { guestMayCancel, GUEST_CANCEL_WINDOW_HOURS } = require('./policy');
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/; // stay dates stay plain YYYY-MM-DD (API doc §1)
+const DATE = /^\d{4}-\d{2}-\d{2}$/; // stay dates are plain YYYY-MM-DD (API doc section 1)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const requestSchema = Joi.object({
@@ -45,7 +44,7 @@ const byPropertySchema = Joi.object({
 });
 const byGuestSchema = Joi.object({ guest_id: Joi.string().required(), status: statusFilter, ...pagination });
 
-/** Reservation row + history -> the API doc §13.3 response shape. */
+/** Turns a reservation row and its history into the response shape from the API doc. */
 function shapeReservation(row, history, toIso) {
   return {
     reservation_id: row.reservation_id,
@@ -76,10 +75,10 @@ function requireIdempotencyKey(req, res, next) {
 function buildRouter({ bus, repo = defaultRepo }) {
   const r = express.Router();
 
-  // What makes two calls "the same request": the route and the validated body.
+  // Two calls count as the same request when the route and the body match.
   const fingerprint = (req) => ({ path: req.path, body: req.body });
 
-  /** Same key + same request -> replay the first answer. Same key + different request -> 409. */
+  /** Same key and same request returns the first answer. Same key with a different request returns 409. */
   async function replayIfSeen(req, res) {
     const previous = await repo.findIdempotentResponse(req.idempotencyKey);
     if (!previous) return false;
@@ -104,7 +103,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
     }
   }
 
-  /** Publish the command event for the worker, remember the answer, reply 202. */
+  /** Publishes the event for the worker, saves the answer and replies 202. */
   async function accept(req, res, { topic, row, payload, status }) {
     const role = req.user.role;
     const env = createEnvelope({
@@ -118,12 +117,12 @@ function buildRouter({ bus, repo = defaultRepo }) {
       payload,
     });
     try {
-      await bus.publish(topic, env, row.property_id); // key = property_id keeps one property's events in order
+      await bus.publish(topic, env, row.property_id); // the property id is the key, so one property's events stay in order
     } catch (err) {
       throw Errors.dependency('Kafka');
     }
     const body = { data: { reservation_id: row.reservation_id, status }, trace_id: req.traceId };
-    await repo.saveIdempotentResponse(req.idempotencyKey, fingerprint(req), 202, body);
+    await repo.saveIdempotentResponse(req.idempotencyKey, fingerprint(req), 202, body, req.user.id);
     return res.status(202).json(body);
   }
 
@@ -139,12 +138,12 @@ function buildRouter({ bus, repo = defaultRepo }) {
     asyncHandler(async (req, res) => {
       const { property_id, check_in, check_out, guest_count, guest_message } = req.body;
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toISOString().slice(0, 10); // the doc says check_in must be today or later (UTC)
       if (check_in < today) throw Errors.validation([{ field: 'check_in', issue: 'must be today or later' }]);
       const nights = nightsBetween(check_in, check_out);
       if (!Number.isInteger(nights) || nights < 1 || nights > 30) throw Errors.validation([{ field: 'check_out', issue: 'stay must be 1 to 30 nights' }]);
 
-      // A repeat of the same Idempotency-Key returns the original answer.
+      // The same Idempotency-Key again returns the original answer.
       if (await replayIfSeen(req, res)) return;
 
       const property = await repo.findPropertyForBooking(property_id);
@@ -152,8 +151,17 @@ function buildRouter({ bus, repo = defaultRepo }) {
       if (property.status !== 'active') throw Errors.gone();
       if (guest_count > property.capacity) throw Errors.businessRule(`Property sleeps at most ${property.capacity}.`);
 
-      // Derived from the Idempotency-Key, so two simultaneous calls with the same
-      // key produce the same reservation_id (and the worker applies it once).
+      // Same guest, property and dates while still active returns 409 (API doc section 2).
+      // A repeat with the same key was already answered above.
+      const duplicate = await repo.findActiveDuplicate(req.user.id, property_id, check_in, check_out);
+      if (duplicate) {
+        throw Errors.conflict('DUPLICATE_BOOKING', 'You already have an active request for this property and these dates.', [
+          { field: 'check_in', issue: `same stay as reservation ${duplicate.reservation_id}` },
+        ]);
+      }
+
+      // Built from the Idempotency-Key, so two calls with the same key get the same
+      // reservation id and the worker only applies it once.
       const reservationId = `res_${req.idempotencyKey.replace(/-/g, '')}`;
       const env = createEnvelope({
         eventType: TOPICS.BOOKING_REQUESTED,
@@ -177,21 +185,21 @@ function buildRouter({ bus, repo = defaultRepo }) {
       });
 
       try {
-        await bus.publish(TOPICS.BOOKING_REQUESTED, env, property_id); // key = property_id -> ordered per property
+        await bus.publish(TOPICS.BOOKING_REQUESTED, env, property_id); // the property id is the key, so one property's events stay in order
       } catch (err) {
         throw Errors.dependency('Kafka');
       }
 
       const body = { data: { reservation_id: reservationId, status: 'PENDING' }, trace_id: req.traceId };
-      await repo.saveIdempotentResponse(req.idempotencyKey, fingerprint(req), 202, body);
+      await repo.saveIdempotentResponse(req.idempotencyKey, fingerprint(req), 202, body, req.user.id);
       return res.status(202).json(body);
     }),
   );
 
   const reply = (req, res, data) => res.status(200).json({ data, trace_id: req.traceId });
 
-  // Guest or host on the booking (or admin). Before the worker has written the
-  // row, the Idempotency-Key record answers with PENDING so a client can poll.
+  // For the guest or host on the booking (or an admin). Before the worker writes the row,
+  // the Idempotency-Key record lets us answer PENDING so the client can keep checking.
   r.post(
     '/bookings/get',
     requireRole('guest', 'host'),
@@ -199,9 +207,11 @@ function buildRouter({ bus, repo = defaultRepo }) {
     asyncHandler(async (req, res) => {
       const row = await repo.findReservation(req.body.reservation_id);
       if (!row) {
+        // Accepted but not written by the worker yet. Only the guest who asked can see it.
         const pending = await repo.findPendingReservation(req.body.reservation_id);
-        if (pending) return reply(req, res, pending);
-        throw Errors.notFound('Reservation');
+        if (!pending) throw Errors.notFound('Reservation');
+        if (req.user.role !== 'admin' && pending.owner_id !== req.user.id) throw Errors.forbidden();
+        return reply(req, res, { reservation_id: pending.reservation_id, status: pending.status });
       }
       const { id, role } = req.user;
       if (role !== 'admin' && row.guest_id !== id && row.host_id !== id) throw Errors.forbidden();
@@ -233,7 +243,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
     }),
   );
 
-  // Self only: a guest's own upcoming, past and cancelled stays, with review prompts.
+  // Guests can only ask for their own stays. Includes review prompts.
   r.post(
     '/bookings/byGuest',
     requireRole('guest'),
@@ -293,7 +303,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
     }),
   );
 
-  // Guest on the booking or its host. Guests cannot cancel within 24 h of check-in (policy.js).
+  // The guest on the booking or its host. A guest cannot cancel within 24 hours of check-in (see policy.js).
   r.post(
     '/bookings/cancel',
     requireRole('guest', 'host'),
@@ -306,7 +316,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
       if (role !== 'admin' && row.guest_id !== id && row.host_id !== id) throw Errors.forbidden();
       assertState(row, ['REQUESTED', 'CONFIRMED'], 'cancel');
       if (role === 'guest' && !guestMayCancel(row.check_in)) {
-        throw Errors.businessRule(`Guests cannot cancel within ${GUEST_CANCEL_WINDOW_HOURS} hours of check-in.`);
+        throw Errors.businessRule(`Guests cannot cancel within ${GUEST_CANCEL_WINDOW_HOURS} hours of check-in.`); // same text as the API doc example
       }
       return accept(req, res, {
         topic: TOPICS.BOOKING_CANCEL_REQUESTED, row, status: 'CANCELLING',

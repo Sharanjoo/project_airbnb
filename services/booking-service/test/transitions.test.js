@@ -1,13 +1,15 @@
 process.env.NODE_ENV = 'test';
-// /bookings/approve, /decline, /cancel (API doc §5, §13.3) and the cancellation policy.
+// Tests for /bookings/approve, /decline and /cancel, plus the cancellation rule and local time.
 const test = require('node:test');
 const assert = require('node:assert');
 const { createApp, logger } = require('@airbnb/common');
 const { buildRouter } = require('../src/routes');
 const { hashBody } = require('../src/models/booking');
 const { guestMayCancel, hoursUntilCheckIn } = require('../src/policy');
+const { localDate, checkInInstant, checkOutInstant } = require('../src/timeutil');
 
 const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+const localDay = (offset) => localDate(Date.now() + offset * 86400000); // a date on the listing's clock
 const KEY = () => crypto.randomUUID();
 const GUEST = { id: 'gst_0001', role: 'guest' };
 const HOST = { id: 'hst_0001', role: 'host' };
@@ -54,9 +56,9 @@ function harness(rowOverrides) {
   return { repo, published, bus: { publish: async (t, e, k) => published.push({ t, e, k }) } };
 }
 
-// ------------------------------------------------------------------ approve
+// approve
 
-test('approve: owning host -> 202 APPROVING and booking.approved is published', async () => {
+test('approve: owning host returns 202 APPROVING and booking.approved is published', async () => {
   const h = harness();
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -89,7 +91,7 @@ test('approve: same Idempotency-Key twice publishes once', async () => {
   } finally { server.close(); }
 });
 
-test('approve: same key reused for a different reservation -> 409 IDEMPOTENCY_KEY_REUSED', async () => {
+test('approve: same key reused for a different reservation returns 409 IDEMPOTENCY_KEY_REUSED', async () => {
   const h = harness();
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -101,7 +103,7 @@ test('approve: same key reused for a different reservation -> 409 IDEMPOTENCY_KE
   } finally { server.close(); }
 });
 
-test('approve: a booking that was already cancelled -> 409 INVALID_STATE_TRANSITION', async () => {
+test('approve: a booking that was already cancelled returns 409 INVALID_STATE_TRANSITION', async () => {
   const h = harness({ status: 'CANCELLED' });
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -114,7 +116,7 @@ test('approve: a booking that was already cancelled -> 409 INVALID_STATE_TRANSIT
   } finally { server.close(); }
 });
 
-test('approve: another host -> 403; guest -> 403; unknown reservation -> 404; no key -> 400', async () => {
+test('approve: another host returns 403; guest returns 403; unknown reservation -> 404; no key -> 400', async () => {
   const h = harness();
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -126,7 +128,7 @@ test('approve: another host -> 403; guest -> 403; unknown reservation -> 404; no
   } finally { server.close(); }
 });
 
-test('approve: Kafka down -> 503 retryable and the key is not remembered', async () => {
+test('approve: Kafka down returns 503 retryable and the key is not remembered', async () => {
   const h = harness();
   const { server, base } = await start(h.repo, { publish: async () => { throw new Error('broker down'); } });
   try {
@@ -137,9 +139,9 @@ test('approve: Kafka down -> 503 retryable and the key is not remembered', async
   } finally { server.close(); }
 });
 
-// ------------------------------------------------------------------ decline
+// decline
 
-test('decline: owning host with a reason -> 202 DECLINING and booking.declined carries the reason', async () => {
+test('decline: owning host with a reason returns 202 DECLINING and booking.declined carries the reason', async () => {
   const h = harness();
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -166,9 +168,9 @@ test('decline: reason is required; a confirmed booking cannot be declined', asyn
   } finally { s2.server.close(); }
 });
 
-// ------------------------------------------------------------------ cancel
+// cancel
 
-test('cancel: guest on the booking, well before check-in -> 202 CANCELLING', async () => {
+test('cancel: guest on the booking, well before check-in returns 202 CANCELLING', async () => {
   const h = harness({ status: 'CONFIRMED' });
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -182,15 +184,19 @@ test('cancel: guest on the booking, well before check-in -> 202 CANCELLING', asy
   } finally { server.close(); }
 });
 
-test('cancel: guest within 24 h of check-in -> 422 BUSINESS_RULE_VIOLATION, nothing published', async () => {
-  const h = harness({ status: 'CONFIRMED', check_in: day(0), check_out: day(2) });
-  const { server, base } = await start(h.repo, h.bus);
-  try {
-    const res = await call(base, '/bookings/cancel', { reservation_id: 'res_51a', cancellation_reason: 'x' }, { user: GUEST });
-    assert.strictEqual(res.status, 422);
-    assert.strictEqual((await res.json()).error.code, 'BUSINESS_RULE_VIOLATION');
-    assert.strictEqual(h.published.length, 0);
-  } finally { server.close(); }
+test('cancel: guest within 24 h of check-in returns 422 with the API doc message, nothing published (CONFIRMED and REQUESTED alike)', async () => {
+  for (const status of ['CONFIRMED', 'REQUESTED']) {
+    const h = harness({ status, check_in: localDay(0), check_out: localDay(2) });
+    const { server, base } = await start(h.repo, h.bus);
+    try {
+      const res = await call(base, '/bookings/cancel', { reservation_id: 'res_51a', cancellation_reason: 'x' }, { user: GUEST });
+      assert.strictEqual(res.status, 422, status);
+      const { error } = await res.json();
+      assert.strictEqual(error.code, 'BUSINESS_RULE_VIOLATION');
+      assert.strictEqual(error.message, 'Guests cannot cancel within 24 hours of check-in.');
+      assert.strictEqual(h.published.length, 0);
+    } finally { server.close(); }
+  }
 });
 
 test('cancel: the host can cancel at any time, even on the check-in day', async () => {
@@ -203,7 +209,7 @@ test('cancel: the host can cancel at any time, even on the check-in day', async 
   } finally { server.close(); }
 });
 
-test('cancel: someone who is not on the booking -> 403', async () => {
+test('cancel: someone who is not on the booking returns 403', async () => {
   const h = harness({ status: 'CONFIRMED' });
   const { server, base } = await start(h.repo, h.bus);
   try {
@@ -212,7 +218,7 @@ test('cancel: someone who is not on the booking -> 403', async () => {
   } finally { server.close(); }
 });
 
-test('cancel: already cancelled, completed or declined -> 409 INVALID_STATE_TRANSITION', async () => {
+test('cancel: already cancelled, completed or declined returns 409 INVALID_STATE_TRANSITION', async () => {
   for (const status of ['CANCELLED', 'COMPLETED', 'DECLINED', 'EXPIRED', 'REJECTED']) {
     const h = harness({ status });
     const { server, base } = await start(h.repo, h.bus);
@@ -231,14 +237,28 @@ test('cancel: reason is required', async () => {
   } finally { server.close(); }
 });
 
-// ------------------------------------------------------------------ policy
+// cancellation rule and local time
 
-test('policy: the guest window is 24 h before 00:00 UTC on the check-in date', () => {
+test('policy: guests are locked out 24 h before check-in time (15:00 local = 22:00 UTC in June)', () => {
   const checkIn = '2030-06-10';
   const at = (iso) => Date.parse(iso);
-  assert.strictEqual(hoursUntilCheckIn(checkIn, at('2030-06-09T00:00:00Z')), 24);
-  assert.strictEqual(guestMayCancel(checkIn, at('2030-06-09T00:00:00Z')), true); // exactly 24 h left
-  assert.strictEqual(guestMayCancel(checkIn, at('2030-06-09T00:00:01Z')), false); // just inside the window
+  assert.strictEqual(hoursUntilCheckIn(checkIn, at('2030-06-09T22:00:00Z')), 24);
+  assert.strictEqual(guestMayCancel(checkIn, at('2030-06-09T22:00:00Z')), true); // exactly 24 hours left
+  assert.strictEqual(guestMayCancel(checkIn, at('2030-06-09T22:00:01Z')), false); // one second inside the window
   assert.strictEqual(guestMayCancel(checkIn, at('2030-06-01T12:00:00Z')), true);
-  assert.strictEqual(guestMayCancel(checkIn, at('2030-06-10T09:00:00Z')), false); // after check-in
+  assert.strictEqual(guestMayCancel(checkIn, at('2030-06-11T09:00:00Z')), false); // after check-in
+});
+
+test('time: stays run on the listing clock (America/Los_Angeles), including daylight saving', () => {
+  // it can still be the 18th in California when it is already the 19th in UTC
+  assert.strictEqual(localDate(Date.parse('2026-11-19T02:34:00Z')), '2026-11-18');
+  assert.strictEqual(localDate(Date.parse('2026-11-19T08:00:00Z')), '2026-11-19');
+  // 15:00 local is 8 hours behind UTC in winter and 7 hours behind in summer
+  assert.strictEqual(new Date(checkInInstant('2026-12-01')).toISOString(), '2026-12-01T23:00:00.000Z');
+  assert.strictEqual(new Date(checkInInstant('2030-06-10')).toISOString(), '2030-06-10T22:00:00.000Z');
+  // 11:00 local check-out
+  assert.strictEqual(new Date(checkOutInstant('2026-12-01')).toISOString(), '2026-12-01T19:00:00.000Z');
+  // the two days the clocks change in 2026: March 8 and November 1
+  assert.strictEqual(new Date(checkInInstant('2026-03-08')).toISOString(), '2026-03-08T22:00:00.000Z');
+  assert.strictEqual(new Date(checkInInstant('2026-11-01')).toISOString(), '2026-11-01T23:00:00.000Z');
 });

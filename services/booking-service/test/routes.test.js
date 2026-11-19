@@ -1,6 +1,6 @@
 process.env.NODE_ENV = 'test';
-// Every endpoint listed in the API doc must exist (anything but 404).
-// Keep this list in sync with the doc; add behaviour tests next to it as you implement.
+// Every endpoint in the API doc must exist, meaning it never answers 404.
+// Keep this list in step with the doc.
 const test = require('node:test');
 const assert = require('node:assert');
 const app = require('../src/index');

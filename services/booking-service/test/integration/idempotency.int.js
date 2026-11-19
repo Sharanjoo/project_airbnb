@@ -1,4 +1,4 @@
-// Idempotency-Key store against real MySQL: stored hash, 24 h expiry, reuse after expiry.
+// Idempotency-Key storage against real MySQL: the stored hash, the 24 hour expiry and reuse after expiry.
 process.env.NODE_ENV = 'test';
 const test = require('node:test');
 const assert = require('node:assert');

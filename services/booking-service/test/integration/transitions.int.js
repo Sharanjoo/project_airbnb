@@ -1,5 +1,5 @@
-// Worker transitions against real MySQL: approve, decline, cancel, host-blocked dates,
-// duplicate delivery (13.2) and release-then-rebook (13.1). Kafka is stubbed.
+// Worker tests against real MySQL: approve, decline, cancel, host-blocked dates,
+// duplicate delivery and rebooking nights that were freed. Kafka is replaced by a stub.
 //   npm run infra:up   then   npm run test:db -w services/booking-service
 process.env.NODE_ENV = 'test';
 const test = require('node:test');
@@ -14,7 +14,7 @@ const published = [];
 worker.bus.publish = async (topic, env, key) => published.push({ topic, env, key });
 const sent = (topic) => published.filter((p) => p.topic === topic);
 
-// Own date range (2028 only): the other integration files use 2029 and 2030+, and node runs them in parallel.
+// This file only uses dates in 2028. The other files use 2029 and 2030 on, and node runs them at the same time.
 const day = (d) => new Date(Date.UTC(2028, 0, 1) + d * 86400000).toISOString().slice(0, 10);
 const db = () => getMysql();
 
@@ -64,9 +64,9 @@ const statusOf = async (id) => (await repo.findReservation(id))?.status;
 const nightsOf = async (id) => Number((await db().execute('SELECT COUNT(*) AS n FROM reservation_nights WHERE reservation_id = ?', [id]))[0][0].n);
 const historyOf = async (id) => (await repo.listStatusHistory(id)).map((h) => `${h.from_status}>${h.to_status}`);
 
-// ------------------------------------------------------------------ approve
+// approve
 
-test('approve: REQUESTED -> CONFIRMED, history row, booking.confirmed with property_id, simulated payment', async () => {
+test('approve: moves REQUESTED to CONFIRMED, writes history, sends booking.confirmed with property_id and a simulated payment', async () => {
   const id = await reserve('gst_0001', day(0), day(2));
   published.length = 0;
   const env = approve(id);
@@ -147,7 +147,7 @@ test('an event for a reservation that does not exist is a permanent error', asyn
   );
 });
 
-// ------------------------------------------------------------------ decline
+// decline
 
 test('decline: DECLINED, reason stored, nights released, booking.rejected(new_status DECLINED); dates can be booked again', async () => {
   const id = await reserve('gst_0001', day(30), day(32));
@@ -175,7 +175,7 @@ test('a confirmed reservation cannot be declined', async () => {
   assert.strictEqual(await statusOf(id), 'CONFIRMED');
 });
 
-// ------------------------------------------------------------------ cancel
+// cancel
 
 test('guest cancels a CONFIRMED stay: CANCELLED, nights released, booking.cancelled with property_id', async () => {
   const id = await reserve('gst_0001', day(40), day(42));
@@ -225,7 +225,7 @@ test('13.1 after a cancel: ten concurrent requests for the freed nights give exa
   assert.strictEqual(statuses.filter((s) => s === 'REJECTED').length, 9);
 });
 
-// ------------------------------------------------------------------ host-blocked dates
+// host blocked dates
 
 async function block(start, end) {
   await db().execute(
@@ -248,7 +248,7 @@ test('a request that overlaps dates the host blocked is REJECTED with DATE_CONFL
 });
 
 test('stays that only touch a blocked range (check-out on the first blocked day, check-in on the day after the last) are fine', async () => {
-  await block(day(80), day(82)); // nights 80 and 81 blocked
+  await block(day(80), day(82)); // nights 80 and 81 are blocked
   const before = await reserve('gst_0001', day(78), day(80));
   const after = await reserve('gst_0002', day(82), day(84));
   assert.strictEqual(await statusOf(before), 'REQUESTED');

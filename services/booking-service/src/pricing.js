@@ -1,4 +1,4 @@
-// Server-side price breakdown (API doc §5). Rates are config, not constants in handlers.
+// Server-side price breakdown (API doc section 5). Rates are config, not constants in handlers.
 const SERVICE_FEE_RATE = Number(process.env.SERVICE_FEE_RATE || 0.1);
 const TAX_RATE = Number(process.env.TAX_RATE || 0.12);
 
@@ -27,7 +27,7 @@ function priceBreakdown(property, nights) {
   };
 }
 
-/** Every night of a stay, check_out exclusive: 2026-11-14..16 -> [14, 15] */
+/** Every night of a stay, not counting check_out. For 2026-11-14 to 2026-11-16 that is the 14th and the 15th. */
 function eachNight(checkIn, checkOut) {
   const out = [];
   for (let t = Date.parse(`${checkIn}T00:00:00Z`); t < Date.parse(`${checkOut}T00:00:00Z`); t += 86400000) {

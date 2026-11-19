@@ -1,18 +1,17 @@
-// Booking Worker: a separate process from the Booking API (spec §3.1).
+// Booking worker. It runs as its own process, separate from the booking API.
 //
-//   booking.requested        -> claim the nights (or reject: taken / blocked by the host)
-//   booking.approved         -> CONFIRMED, publishes booking.confirmed + payment.completed
-//   booking.declined         -> DECLINED, nights released, publishes booking.rejected (new_status DECLINED)
-//   booking.cancel_requested -> CANCELLED, nights released, publishes booking.cancelled
-//   (timer, src/scheduler.js)  -> EXPIRED after 24 h without a host reply, COMPLETED after check-out
+// Events it handles:
+//   booking.requested: claims the nights, or rejects the request if they are taken or blocked
+//   booking.approved: confirms the booking and sends booking.confirmed and payment.completed
+//   booking.declined: marks it declined, frees the nights and sends booking.rejected
+//   booking.cancel_requested: cancels it, frees the nights and sends booking.cancelled
+// The scheduler in scheduler.js also runs here to expire old requests and complete finished stays.
 //
-// Reliability rules (API doc §10, feature 13.2):
-//  - each handler does its database work in ONE transaction together with
-//    claimEvent(), so a redelivered event is applied exactly once;
-//  - outcome events are published AFTER the commit. If the worker dies between
-//    the commit and the publish, the redelivered event is a duplicate for the
-//    database but still re-publishes the outcome (same idempotency_key), so the
-//    outcome is never lost and downstream consumers dedupe it.
+// Two rules keep this safe when something crashes:
+// 1. The database change and the "already processed" record go in one transaction,
+//    so an event that arrives twice is only applied once.
+// 2. The outcome event is sent after the commit. If the worker dies before sending it,
+//    the event comes back, the database change is skipped, but the outcome is sent again.
 process.env.SERVICE_NAME = process.env.SERVICE_NAME || 'booking-worker';
 const {
   EventBus, PermanentError, withTransaction, claimEvent, createEnvelope, TOPICS, logger,
@@ -24,7 +23,7 @@ const GROUP = 'booking-worker-cg';
 const ACTOR = 'svc:booking-worker';
 const bus = new EventBus('booking-worker');
 
-/** Publish one outcome event for a reservation. The key (property_id) keeps a property's events in order. */
+/** Sends one outcome event. The property id is the key, so one property's events stay in order. */
 async function publishOutcome(env, { topic, suffix, row, previous, to, reason }) {
   await bus.publish(topic, createEnvelope({
     eventType: topic,
@@ -48,25 +47,25 @@ async function publishOutcome(env, { topic, suffix, row, previous, to, reason })
   }), row.property_id);
 }
 
-// ------------------------------------------------------------------ booking.requested
+// Handler for booking.requested
 
 async function handleBookingRequested(env, { topic }) {
   const p = env.payload;
   const result = await withTransaction(async (conn) => {
-    // Duplicate delivery (redelivery after a crash, retry): skip the write, but report what happened.
+    // We already handled this event (a retry or a redelivery). Skip the write but still report the outcome.
     if (!(await claimEvent(conn, GROUP, env, topic))) {
       const existing = await repo.lockReservation(conn, p.reservation_id);
       return { outcome: 'duplicate', rejected: existing && existing.status === 'REJECTED' ? existing.cancellation_reason : null };
     }
 
-    // Savepoint so a lost race on nights does not undo the processed_events row.
+    // Savepoint so losing the race for a night does not undo the processed_events row.
     await conn.query('SAVEPOINT claim_nights');
     let rejectedReason = null;
     try {
-      // Serialise against a host blocking dates on this property (Property Service holds the exclusive lock).
+      // Wait for any host who is blocking dates on this property right now.
       await repo.lockPropertyShared(conn, p.property_id);
       if (await repo.hasBlockedDates(conn, p.property_id, p.check_in, p.check_out)) {
-        rejectedReason = 'DATE_CONFLICT'; // inside dates the host has blocked
+        rejectedReason = 'DATE_CONFLICT'; // the host blocked these dates
       } else {
         await repo.insertReservationWithNights(conn, p, 'REQUESTED', env.trace_id);
         await repo.recordStatus(conn, { reservationId: p.reservation_id, from: null, to: 'REQUESTED', actorId: ACTOR, traceId: env.trace_id });
@@ -74,7 +73,7 @@ async function handleBookingRequested(env, { topic }) {
     } catch (err) {
       if (err.code !== 'ER_DUP_ENTRY') throw err;
       await conn.query('ROLLBACK TO SAVEPOINT claim_nights');
-      rejectedReason = 'DATE_CONFLICT'; // another reservation holds a night (13.1)
+      rejectedReason = 'DATE_CONFLICT'; // someone else already holds one of these nights
     }
 
     if (rejectedReason) {
@@ -96,10 +95,10 @@ async function handleBookingRequested(env, { topic }) {
       reason: result.rejected,
     });
   }
-  // The guest's "request received" push comes from booking.requested itself (the notification gateway can consume it).
+  // The guest hears about a new request from the booking.requested event itself.
 }
 
-// ------------------------------------------------------------------ approve / decline / cancel
+// Handlers for approve, decline and cancel
 
 const TRANSITIONS = {
   [TOPICS.BOOKING_APPROVED]: {
@@ -138,7 +137,7 @@ const TRANSITIONS = {
 async function publishTransitionOutcome(env, spec, row, previous, reason) {
   await publishOutcome(env, { topic: spec.outcome, suffix: spec.suffix, row, previous, to: spec.to, reason });
   if (spec.simulatePayment) {
-    // Simulated payment (spec): the charge succeeds when the host confirms.
+    // Simulated payment. The charge goes through once the host confirms.
     await bus.publish(TOPICS.PAYMENT_COMPLETED, createEnvelope({
       eventType: TOPICS.PAYMENT_COMPLETED,
       traceId: env.trace_id,
@@ -158,19 +157,19 @@ async function handleTransition(env, { topic }) {
 
   const result = await withTransaction(async (conn) => {
     const first = await claimEvent(conn, GROUP, env, topic);
-    const row = await repo.lockReservation(conn, id); // serialises with any other change to this reservation
+    const row = await repo.lockReservation(conn, id); // lock it so two changes to one booking cannot overlap
     if (!row) throw new PermanentError(`reservation ${id} does not exist`);
 
     if (!first) {
       const previous = row.status === spec.to ? await repo.previousStatusBefore(conn, id, spec.to) : null;
       return { kind: 'duplicate', row, previous };
     }
-    // The API already checked who is calling; refuse an event that claims someone else.
+    // The API already checked who is calling. Refuse an event that names someone else.
     const actor = spec.actorOf(env);
     if (env.actor_type !== 'admin' && !spec.allowedActors(row).includes(actor)) {
       throw new PermanentError(`${actor} may not ${topic} reservation ${id}`);
     }
-    // Someone got there first (e.g. the guest cancelled while the host was approving): nothing to do.
+    // Someone got there first, like the guest cancelling while the host approves. Nothing to do.
     if (!spec.from.includes(row.status)) return { kind: 'ignored', row };
 
     const reason = spec.reasonOf(env);
@@ -184,7 +183,7 @@ async function handleTransition(env, { topic }) {
   if (result.kind === 'applied') {
     await publishTransitionOutcome(env, spec, result.row, result.previous, result.reason);
   } else if (result.kind === 'duplicate' && result.row.status === spec.to) {
-    // Already applied: re-send the outcome in case the first delivery died before publishing it.
+    // Already applied. Send the outcome again in case the first attempt died before sending it.
     await publishTransitionOutcome(env, spec, result.row, result.previous, result.row.cancellation_reason);
   } else if (result.kind === 'ignored') {
     logger.warn('transition ignored, reservation is no longer in a valid state', { trace_id: env.trace_id, reservation_id: id, topic, status: result.row.status });
@@ -206,7 +205,7 @@ async function main() {
     handler: (env, meta) => handlers[meta.topic](env, meta),
   });
   logger.info('booking-worker consuming', { topics: Object.keys(handlers) });
-  // EXPIRED / COMPLETED timer. Safe with several replicas: every change is row-locked and status-guarded.
+  // Expire and complete bookings on a timer. Safe with several workers because each change locks the row.
   startScheduler(bus);
 }
 

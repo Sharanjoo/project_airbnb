@@ -1,29 +1,35 @@
-// Booking scheduler (API doc §5, reservation status transitions). Runs inside the
-// booking-worker process on a timer.
+// Scheduler for bookings. It runs inside the booking worker on a timer.
 //
-//   REQUESTED, no host action in 24 h (or check-in day reached) -> EXPIRED, nights released
-//   CONFIRMED, check-out day reached                             -> COMPLETED
+// What it does:
+//   A pending request expires after 24 hours with no host reply, or when check-in time arrives.
+//   A confirmed stay is completed once check-out time has passed.
+// Check-in is 15:00 and check-out is 11:00 in the listing's time zone (see timeutil.js).
 //
-// Every pass has two steps:
-//   1. apply: one transaction per reservation (row lock + status guard), so
-//      several worker replicas can run this at once and each change happens once;
-//   2. announce: publish booking.cancelled (EXPIRED) / booking.completed for every
-//      reservation that has no "published" marker yet, then store the marker.
-//      If the process dies or Kafka is down between 1 and 2, the next pass
-//      announces it, so the review prompt or the freed dates are never lost.
-//      Consumers dedupe on the stable idempotency_key.
+// Each pass has two steps:
+// 1. Change the status, one transaction per booking with the row locked.
+//    Several workers can run this at once and each change still happens once.
+// 2. Announce it with booking.cancelled (expired) or booking.completed, then save a marker.
+//    If the process dies or Kafka is down, the next pass sends it again, so nothing is lost.
 const { withTransaction, createEnvelope, TOPICS, logger } = require('@airbnb/common');
 const repo = require('./models/booking');
+const { localDate, checkInInstant, checkOutInstant } = require('./timeutil');
 
 const ACTOR = 'svc:booking-scheduler';
 const REQUEST_EXPIRY_HOURS = Number(process.env.REQUEST_EXPIRY_HOURS || 24);
 const REPUBLISH_LOOKBACK_DAYS = Number(process.env.SCHEDULER_LOOKBACK_DAYS || 7);
 const INTERVAL_MS = Number(process.env.SCHEDULER_INTERVAL_MS || 60000);
 
-async function expireOne(id) {
+/** A pending request expires 24 hours after it was made, or at check-in time, whichever comes first. */
+function isExpired(row, now) {
+  const ageHours = (now - Date.parse(repo.toIso(row.booking_datetime))) / 3600000;
+  return ageHours >= REQUEST_EXPIRY_HOURS || now >= checkInInstant(row.check_in);
+}
+
+async function expireOne(id, now = Date.now()) {
   return withTransaction(async (conn) => {
     const row = await repo.lockReservation(conn, id);
     if (!row || row.status !== 'REQUESTED') return false; // approved, declined or cancelled in the meantime
+    if (!isExpired(row, now)) return false; // the date matched but the time has not come yet
     await repo.setStatus(conn, { reservationId: id, from: 'REQUESTED', to: 'EXPIRED', reason: 'NO_HOST_RESPONSE' });
     await repo.releaseNights(conn, id);
     await repo.recordStatus(conn, { reservationId: id, from: 'REQUESTED', to: 'EXPIRED', actorId: ACTOR, reason: 'NO_HOST_RESPONSE', traceId: row.trace_id });
@@ -31,17 +37,18 @@ async function expireOne(id) {
   });
 }
 
-async function completeOne(id) {
+async function completeOne(id, now = Date.now()) {
   return withTransaction(async (conn) => {
     const row = await repo.lockReservation(conn, id);
     if (!row || row.status !== 'CONFIRMED') return false; // cancelled in the meantime
+    if (now < checkOutInstant(row.check_out)) return false; // check-out time has not arrived yet
     await repo.setStatus(conn, { reservationId: id, from: 'CONFIRMED', to: 'COMPLETED' });
     await repo.recordStatus(conn, { reservationId: id, from: 'CONFIRMED', to: 'COMPLETED', actorId: ACTOR, traceId: row.trace_id });
     return true;
   });
 }
 
-/** The event that announces a scheduler-made status. trace_id is the one from the original request. */
+/** Builds the event that announces the new status. It keeps the trace id of the original request. */
 function announcement(row) {
   const expired = row.status === 'EXPIRED';
   const topic = expired ? TOPICS.BOOKING_CANCELLED : TOPICS.BOOKING_COMPLETED;
@@ -71,15 +78,16 @@ function announcement(row) {
   };
 }
 
-/** One scheduler pass. Returns what it did (used by the tests and the logs). */
-async function runOnce(bus) {
+/** Runs one pass and returns what it did. */
+async function runOnce(bus, now = Date.now()) {
   const result = { expired: 0, completed: 0, published: 0, failed: 0 };
+  const today = localDate(now);
 
-  for (const id of await repo.findExpirable(REQUEST_EXPIRY_HOURS)) {
-    if (await expireOne(id)) result.expired++;
+  for (const id of await repo.findExpirable(REQUEST_EXPIRY_HOURS, today)) {
+    if (await expireOne(id, now)) result.expired++;
   }
-  for (const id of await repo.findCompletable()) {
-    if (await completeOne(id)) result.completed++;
+  for (const id of await repo.findCompletable(today)) {
+    if (await completeOne(id, now)) result.completed++;
   }
 
   for (const row of await repo.findUnpublished(REPUBLISH_LOOKBACK_DAYS)) {
@@ -89,14 +97,14 @@ async function runOnce(bus) {
       await repo.markPublished(row, env.event_id, topic);
       result.published++;
     } catch (err) {
-      result.failed++; // no marker, so the next pass tries again
+      result.failed++; // no marker saved, so the next pass tries again
       logger.warn('scheduler could not publish, will retry', { reservation_id: row.reservation_id, topic, error: err.message });
     }
   }
   return result;
 }
 
-/** Start the timer. A pass never overlaps the previous one; errors are logged, never fatal. */
+/** Starts the timer. Passes never overlap, and an error is logged instead of crashing the worker. */
 function startScheduler(bus, intervalMs = INTERVAL_MS) {
   let running = false;
   const tick = async () => {
