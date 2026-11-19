@@ -14,6 +14,8 @@
 //   5. A second event with the same idempotency key is sent. It is skipped too.
 //   6. A malformed message and an invalid envelope are sent. Both go to the dead-letter
 //      topic and the worker keeps working.
+//   7. The booking API itself is stopped. The gateway answers 503 with retryable set to true,
+//      and everything works again once the service is back.
 // Everything it prints (offsets, lag, database counts, worker log lines) is real output
 // from the running system, so it can be pasted into the report as evidence.
 const { execSync } = require('child_process');
@@ -84,6 +86,22 @@ function printOffsets(title) {
 
 const dlqSize = () => kafkaBin('kafka-get-offsets.sh', `--topic ${DLQ}`).trim().split('\n')
   .reduce((sum, l) => sum + Number(l.split(':')[2] || 0), 0);
+
+/**
+ * Dead-letter records created after `sinceMs`, read from the topic with their headers.
+ * Every consumer group that reads booking.requested rejects a bad message on its own, so one
+ * bad message can appear once per group. The consumer_group header says who rejected it.
+ */
+function dlqRecordsSince(sinceMs) {
+  const out = kafkaBin('kafka-console-consumer.sh', `--topic ${DLQ} --from-beginning --timeout-ms 6000 --property print.headers=true --property print.timestamp=true`);
+  return out.split('\n')
+    .map((line) => ({
+      at: Number((line.match(/CreateTime:(\d+)/) || [])[1]),
+      group: (line.match(/consumer_group:([^,\t]+)/) || [])[1],
+      reason: (line.match(/failure_reason:([^\t]+?),failed_at/) || [])[1],
+    }))
+    .filter((r) => r.group && r.at >= sinceMs);
+}
 
 function workerLines(since, reservationId) {
   const logs = compose(`logs --no-log-prefix --since ${since} booking-worker`);
@@ -222,12 +240,20 @@ async function main() {
 
     step('Step 6: bad messages go to the dead-letter topic');
     const dlqBefore = dlqSize();
+    const badSentAt = Date.now();
     await producer.send({ topic: TOPIC, messages: [{ key: 'prp_0001', value: 'this is not json {' }] });
     const noKey = { ...second, event_id: randomUUID() };
     delete noKey.idempotency_key;
     await producer.send({ topic: TOPIC, messages: [{ key: 'prp_0001', value: JSON.stringify(noKey) }] });
-    await waitFor(() => dlqSize() >= dlqBefore + 2, 30, 'both bad messages to reach the dead-letter topic');
-    check(dlqSize() === dlqBefore + 2, `${DLQ} grew by 2 (malformed JSON, and an envelope missing idempotency_key): ${dlqBefore} to ${dlqSize()}`);
+    await waitFor(() => dlqSize() >= dlqBefore + 2, 30, 'the bad messages to reach the dead-letter topic');
+    await sleep(3000); // the other consumer groups reject the same messages a moment later
+    const records = dlqRecordsSince(badSentAt);
+    const byGroup = {};
+    for (const r of records) (byGroup[r.group] = byGroup[r.group] || []).push(r.reason);
+    for (const [group, reasons] of Object.entries(byGroup)) say(`  ${DLQ} got ${reasons.length} from ${group}: ${reasons.join(' | ')}`);
+    const mine = byGroup[GROUP] || [];
+    check(mine.length === 2 && mine.some((r) => r === 'malformed JSON') && mine.some((r) => r.includes("idempotency_key")),
+      `the booking worker rejected both bad messages exactly once each (malformed JSON, and an envelope missing idempotency_key)`);
     const afterBad = (await fetch(`${GATEWAY}/api/v1/booking/bookings/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'Idempotency-Key': randomUUID() },
@@ -238,8 +264,23 @@ async function main() {
       await db.execute('DELETE FROM reservation_status_history WHERE reservation_id = ?', [afterBad]);
       await db.execute('DELETE FROM reservations WHERE reservation_id = ?', [afterBad]);
     }
+
+    step('Step 7: the booking API is down (the gateway says so, then it recovers)');
+    const readBooking = () => fetch(`${GATEWAY}/api/v1/booking/bookings/get`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ reservation_id: reservationId }),
+    });
+    compose('stop booking-service');
+    const down = await readBooking();
+    const downBody = await down.json();
+    check(down.status === 503 && downBody.error.code === 'DEPENDENCY_UNAVAILABLE', `the gateway answers ${down.status} ${downBody.error?.code}`);
+    check(downBody.error.retryable === true, 'the error says retryable is true, so a client knows it can try again');
+    compose('start booking-service');
+    await waitFor(() => fetch('http://localhost:8003/health').then((r) => r.ok).catch(() => false), 60, 'the booking API to come back');
+    const back = await readBooking();
+    check(back.status === 200, `after the restart the same request works again: ${back.status}`);
   } finally {
-    // leave the system the way we found it: worker running, demo data removed
+    // leave the system the way we found it: worker and API running, demo data removed
+    try { compose('start booking-service'); } catch { /* already running */ }
     try { compose('start booking-worker'); } catch { /* already running */ }
     if (reservationId && !process.env.KEEP_DEMO_DATA) {
       await db.execute('DELETE FROM reservation_status_history WHERE reservation_id = ?', [reservationId]);
@@ -257,6 +298,6 @@ main()
   })
   .catch((err) => {
     console.error(`\nThe demo stopped: ${err.message}`);
-    try { compose('start booking-worker'); } catch { /* ignore */ }
+    try { compose('start booking-worker'); compose('start booking-service'); } catch { /* ignore */ }
     process.exit(1);
   });
