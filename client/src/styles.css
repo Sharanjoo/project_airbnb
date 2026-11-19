@@ -53,3 +53,22 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .calendar ul { padding-left: 18px; }
 .calendar li button { margin-left: 8px; padding: 2px 8px; }
+
+/* Slice 3: my trips and reservation requests */
+.tabs { display: flex; gap: 8px; margin: 12px 0 16px; flex-wrap: wrap; }
+.tab { border-radius: 999px; }
+.tab.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.booking { display: flex; flex-direction: column; gap: 10px; }
+.actions { align-items: center; }
+.details { border-top: 1px solid var(--line); padding-top: 10px; }
+.deadline { color: #8a5a00; font-size: 0.85rem; }
+.status { font-size: 0.8rem; padding: 3px 10px; border-radius: 999px; background: #f1eef0; color: var(--muted); white-space: nowrap; }
+.status-requested, .status-pending { background: #fff4e5; color: #8a5a00; }
+.status-confirmed { background: #e6f4ea; color: #1e6b34; }
+.status-completed { background: #e8eef9; color: #274a8a; }
+.status-cancelled, .status-declined, .status-expired, .status-rejected { background: #fbe9e7; color: #a1260d; }
+.breakdown { border-collapse: collapse; min-width: 260px; }
+.breakdown td { padding: 3px 0; }
+.breakdown td:last-child { text-align: right; padding-left: 24px; }
+.breakdown .total td { border-top: 1px solid var(--line); font-weight: 600; }
+.history { padding-left: 18px; margin: 8px 0 0; }
