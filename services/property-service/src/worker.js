@@ -1,5 +1,5 @@
 // Property worker (consumer group property-cg). Separate process from the API.
-//   booking.confirmed / cancelled / completed -> invalidate cached search + calendar
+//   booking.confirmed / cancelled / completed / rejected -> invalidate cached search + calendar
 //   review.created                           -> recompute rating and review_count from MongoDB reviews
 //   property.created / property.updated      -> refresh the MongoDB read model used by the "mongo" strategy
 // Every handler is idempotent (it recomputes from the source of truth), so a
@@ -47,6 +47,8 @@ const handlers = {
   [TOPICS.BOOKING_CONFIRMED]: onBookingChanged,
   [TOPICS.BOOKING_CANCELLED]: onBookingChanged,
   [TOPICS.BOOKING_COMPLETED]: onBookingChanged,
+  // A host declining a request (new_status DECLINED) frees its nights, so cached search results must go too.
+  [TOPICS.BOOKING_REJECTED]: onBookingChanged,
   [TOPICS.REVIEW_CREATED]: onReviewCreated,
   [TOPICS.PROPERTY_CREATED]: onPropertyChanged,
   [TOPICS.PROPERTY_UPDATED]: onPropertyChanged,

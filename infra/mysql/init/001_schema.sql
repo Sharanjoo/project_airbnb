@@ -155,6 +155,7 @@ CREATE TABLE idempotency_keys (
   request_hash    CHAR(64)     NOT NULL,
   response_status SMALLINT     NOT NULL,
   response_body   JSON         NOT NULL,
+  actor_id        VARCHAR(40)  NULL COMMENT 'who made the request; owner of a PENDING booking',
   created_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   KEY ix_idem_created (created_at)
 ) ENGINE=InnoDB;
