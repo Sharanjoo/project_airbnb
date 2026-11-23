@@ -10,29 +10,39 @@ import HostListings from './pages/host/HostListings.jsx';
 import HostRequests from './pages/host/HostRequests.jsx';
 import HostDashboard from './pages/host/HostDashboard.jsx';
 import PlatformDashboard from './pages/admin/PlatformDashboard.jsx';
-import { getSession, logout } from './api/client.js';
+import { logout } from './api/client.js';
+import { useSession } from './api/useSession.js';
 
 // Page owners (see TEAM.md):
 //   Slice 1: Login, Messages        Slice 2: Search, PropertyDetail, HostListings
 //   Slice 3: MyBookings, HostRequests   Slice 4: dashboards   Slice 5: AiRecommend
+
+// Links shown for each role. This only tidies the menu: every page still checks
+// the role itself, and the gateway and services enforce it on every call.
+const NAV = {
+  anonymous: [['/', 'Search'], ['/ai', 'AI match']],
+  guest: [['/', 'Search'], ['/ai', 'AI match'], ['/bookings', 'My trips'], ['/messages', 'Messages'], ['/dashboards/guest', 'Dashboard']],
+  host: [['/', 'Search'], ['/host/listings', 'Listings'], ['/host/requests', 'Requests'], ['/messages', 'Messages'], ['/dashboards/host', 'Dashboard']],
+  admin: [['/', 'Search'], ['/ai', 'AI match'], ['/host/listings', 'Listings'], ['/host/requests', 'Requests'], ['/dashboards/platform', 'Platform']],
+};
+
 export default function App() {
-  const session = getSession();
+  const session = useSession();
+  const links = NAV[session?.role] || NAV.anonymous;
   return (
     <div className="app">
       <header className="topbar">
         <strong>Staybook</strong>
         <nav>
-          <NavLink to="/">Search</NavLink>
-          <NavLink to="/ai">AI match</NavLink>
-          <NavLink to="/bookings">My trips</NavLink>
-          <NavLink to="/messages">Messages</NavLink>
-          <NavLink to="/host/listings">Host</NavLink>
-          <NavLink to="/dashboards/platform">Platform</NavLink>
+          {links.map(([to, text]) => <NavLink key={to} to={to} end={to === '/'}>{text}</NavLink>)}
         </nav>
         {session ? (
-          <button onClick={logout}>Log out {session.user_id}</button>
+          <span className="session">
+            <span className="muted">{session.user_id} · {session.role}</span>
+            <button onClick={logout}>Log out</button>
+          </span>
         ) : (
-          <NavLink to="/login">Log in</NavLink>
+          <NavLink to="/login">Log in / Sign up</NavLink>
         )}
       </header>
       <main>
