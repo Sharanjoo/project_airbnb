@@ -89,7 +89,8 @@ async function messagingLag(admin) {
 
 /** The booking.requested record for this reservation, exactly as booking-service published it. */
 async function findRequestRecord(kafka, reservationId) {
-  const consumer = kafka.consumer({ groupId: `smoke-msg-reader-${randomUUID()}` });
+  const groupId = `smoke-msg-reader-${randomUUID()}`;
+  const consumer = kafka.consumer({ groupId });
   await consumer.connect();
   await consumer.subscribe({ topic: 'booking.requested', fromBeginning: true });
   let found = null;
@@ -108,6 +109,11 @@ async function findRequestRecord(kafka, reservationId) {
   });
   await Promise.race([done, sleep(20000)]);
   await consumer.disconnect();
+  // a throwaway group: remove it so repeated runs do not pile up groups in Kafka
+  const admin = kafka.admin();
+  await admin.connect();
+  await admin.deleteGroups([groupId]).catch(() => {});
+  await admin.disconnect();
   return found;
 }
 
