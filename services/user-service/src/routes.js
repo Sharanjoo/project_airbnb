@@ -98,7 +98,8 @@ function buildRouter({ bus, guests = defaultGuests, hosts = defaultHosts }) {
     try {
       return await model.insert(record);
     } catch (err) {
-      if (err.code === 'ER_DUP_ENTRY') throw emailTaken();
+      // Only the email key means "taken"; any other duplicate (an id collision) stays a 500.
+      if (err.code === 'ER_DUP_ENTRY' && /email/i.test(err.sqlMessage || err.message)) throw emailTaken();
       throw err;
     }
   }

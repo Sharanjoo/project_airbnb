@@ -35,12 +35,13 @@ export function parseSession(raw, now = Date.now()) {
   }
 }
 
-/** { token, user_id, role, expires_at } or null. An expired session is cleared. */
+/**
+ * { token, user_id, role, expires_at } or null (also null once expired). Pages call
+ * this while rendering, so it has no side effects; useSession() in App clears an
+ * expired session from storage.
+ */
 export function getSession() {
-  const raw = readStorage();
-  const session = parseSession(raw);
-  if (raw && !session) clearSession();
-  return session;
+  return parseSession(readStorage());
 }
 
 function notify() {
@@ -100,8 +101,10 @@ export async function api(service, path, body, { method = 'POST', idempotencyKey
   // The gateway rejected our token (expired, or signed with an old secret): drop it so
   // the UI shows the logged-out state instead of failing every call. On public routes
   // the gateway answers normally but flags the dropped token with X-Auth-Status.
+  // Only clear if the stored token is still the one this request sent: a slow reply
+  // to an old request must not log out a session created in the meantime.
   const rejected = (res.status === 401 && json?.error?.code === 'UNAUTHENTICATED') || res.headers.get('X-Auth-Status') === 'invalid';
-  if (rejected && session?.token) clearSession();
+  if (rejected && session?.token && getSession()?.token === session.token) clearSession();
   if (!res.ok) throw new ApiError(res.status, json);
   return json.data;
 }

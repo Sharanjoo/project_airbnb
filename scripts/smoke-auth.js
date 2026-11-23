@@ -138,6 +138,11 @@ async function main() {
   } finally {
     await db.end();
   }
+
+  // Tidy up: pause the test listing so it does not show up in demo searches (13.8 / 13.9).
+  const pause = await call('property', '/properties/update',
+    { property_id: propertyId, version: listing.body.data.version, status: 'inactive' }, { token: hs.token });
+  check(pause.status === 200 && pause.body.data.status === 'inactive', 'test listing set to inactive', describe(pause));
 }
 
 main().catch((e) => bad(e.stack || e.message));
