@@ -21,6 +21,7 @@
     "test": "npm test --workspaces --if-present",
     "dev:gateway": "npm run dev -w services/gateway",
     "dev:user": "npm run dev -w services/user-service",
+    "dev:user-worker": "npm run worker -w services/user-service",
     "dev:property": "npm run dev -w services/property-service",
     "dev:property-worker": "npm run worker -w services/property-service",
     "dev:booking": "npm run dev -w services/booking-service",

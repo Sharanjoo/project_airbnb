@@ -35,6 +35,8 @@ Then either run the services you are working on locally:
 
 ```bash
 npm run dev:gateway
+npm run dev:user
+npm run dev:user-worker      # guest booking_count / saved_properties_count from Kafka
 npm run dev:booking
 npm run dev:booking-worker
 npm run dev:property         # property API
@@ -142,6 +144,7 @@ Working and tested:
 - Kafka consumer logic: malformed or invalid messages go to DLQ, transient errors retry with backoff, permanent errors skip retries
 - Gateway: JWT (HS256 only), spoofed identity headers dropped, trace id, 503 when a service is down; a stale token on a public route continues anonymously, protected routes still answer 401; rate limit keyed on the verified user or IP
 - Users and auth (Slice 1, phase 1): guest and host sign-up (bcrypt, 409 on duplicate email, publishes `user.created`), login returning `{ token, expires_at, user_id, role }`, Login page with session handling and role-aware menu. Admin comes only from `hosts.access_level = 'admin'` set in the database
+- User profiles (Slice 1, phase 2): guests get / update / soft-delete and admin search, hosts get (public view for others) / update; owner-or-admin checks, optimistic `version` (409 `VERSION_CONFLICT`), `user.updated` with changed field names only. `user-worker` (group `user-cg`): `booking.confirmed` adds 1 to the guest's `booking_count` once per reservation (claimed in `processed_events`; cancellations do not subtract, pending a team decision), `property.saved` recomputes `saved_properties_count` from `saved_properties`
 - Properties (Slice 2): create, get, update, delete, save, search with two strategies and a Redis cache, availability with conflict detection, property worker, client search/detail/host pages
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)

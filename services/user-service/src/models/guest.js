@@ -59,6 +59,119 @@ async function insert(g) {
   return findById(g.guest_id);
 }
 
-// TODO (slice 1, phase 2): update with optimistic lock (WHERE version = ?), softDelete, search
+/** Includes soft-deleted guests, so callers can tell 404 (never existed) from "already deleted". */
+async function findByIdAnyStatus(guestId) {
+  const [rows] = await getMysql().execute(`SELECT ${PUBLIC_COLUMNS}, is_deleted FROM guests WHERE guest_id = ?`, [guestId]);
+  return rows[0] || null;
+}
 
-module.exports = { toApi, findById, findByEmail, insert };
+// Fields a guest may change through /guests/update: API field -> column.
+// Email, password, counters, version and is_deleted are deliberately absent.
+const EDITABLE = {
+  first_name: 'first_name',
+  last_name: 'last_name',
+  phone: 'phone',
+  location: 'location',
+  profile_photo_url: 'profile_photo_url',
+  preferences: 'preferences',
+};
+
+/**
+ * Optimistic lock: the UPDATE only matches when the caller's version is current.
+ * Returns { updated: true, row } or { updated: false, row } with the current row
+ * (null if the guest does not exist) so the caller can answer 404 / 409.
+ */
+async function updateWithVersion(guestId, version, changes) {
+  const sets = [];
+  const params = [];
+  for (const [field, value] of Object.entries(changes)) {
+    const column = EDITABLE[field];
+    if (!column) throw new Error(`guest field ${field} is not editable`); // routes validate first; this is a backstop
+    sets.push(`${column} = ?`);
+    params.push(field === 'preferences' && value !== null ? JSON.stringify(value) : value);
+  }
+  const [res] = await getMysql().execute(
+    `UPDATE guests SET ${sets.join(', ')}, version = version + 1
+     WHERE guest_id = ? AND version = ? AND is_deleted = FALSE`,
+    [...params, guestId, version],
+  );
+  return { updated: res.affectedRows === 1, row: await findByIdAnyStatus(guestId) };
+}
+
+/** Soft delete. Returns true if this call deleted the guest, false if it was already deleted or missing. */
+async function softDelete(guestId) {
+  const [res] = await getMysql().execute(
+    'UPDATE guests SET is_deleted = TRUE, version = version + 1 WHERE guest_id = ? AND is_deleted = FALSE',
+    [guestId],
+  );
+  return res.affectedRows === 1;
+}
+
+/** Same rule as property delete (slice 2): a request or confirmed stay that has not ended yet. */
+async function countActiveReservations(guestId) {
+  const [rows] = await getMysql().execute(
+    `SELECT COUNT(*) AS n FROM reservations
+     WHERE guest_id = ? AND status IN ('REQUESTED', 'CONFIRMED') AND check_out > CURRENT_DATE()`,
+    [guestId],
+  );
+  return Number(rows[0].n);
+}
+
+const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/** Admin search. q matches part of the full name or the start of the email. Newest first. */
+async function search({ q, location, includeDeleted = false, page = 1, pageSize = 20 }) {
+  const where = [];
+  const params = [];
+  if (!includeDeleted) where.push('is_deleted = FALSE');
+  if (q) {
+    where.push("(CONCAT(first_name, ' ', last_name) LIKE ? OR email LIKE ?)");
+    params.push(`%${escapeLike(q)}%`, `${escapeLike(q.toLowerCase())}%`);
+  }
+  if (location) {
+    where.push('location LIKE ?');
+    params.push(`${escapeLike(location)}%`);
+  }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const db = getMysql();
+  const [[{ total }]] = await db.execute(`SELECT COUNT(*) AS total FROM guests ${clause}`, params);
+  // LIMIT/OFFSET are validated integers; inlined because mysql2 prepared statements reject them as strings
+  const [rows] = await db.execute(
+    `SELECT ${PUBLIC_COLUMNS}, is_deleted FROM guests ${clause}
+     ORDER BY profile_created_datetime DESC, guest_id LIMIT ${Number(pageSize)} OFFSET ${(Number(page) - 1) * Number(pageSize)}`,
+    params,
+  );
+  return { rows, total: Number(total) };
+}
+
+// ---------------------------------------------------------------- counters (user worker)
+// Counters are derived data: they never bump `version`, so a guest editing their
+// profile does not get a VERSION_CONFLICT because they just saved a listing.
+
+/** +1 booking for this guest. Call inside the transaction that claimed the event. */
+async function incrementBookingCount(conn, guestId) {
+  const [res] = await conn.execute('UPDATE guests SET booking_count = booking_count + 1 WHERE guest_id = ?', [guestId]);
+  return res.affectedRows === 1;
+}
+
+/**
+ * Set saved_properties_count from saved_properties, the table property-service
+ * writes. Recomputing (instead of +1 / -1) makes the handler idempotent and order
+ * independent, and it heals any drift from a property.saved event that was lost
+ * because Kafka was down when the guest saved. Same approach as the property worker.
+ */
+async function recomputeSavedCount(guestId) {
+  const [res] = await getMysql().execute(
+    `UPDATE guests SET saved_properties_count = (SELECT COUNT(*) FROM saved_properties WHERE guest_id = ?)
+     WHERE guest_id = ?`,
+    [guestId, guestId],
+  );
+  if (res.affectedRows !== 1) return null;
+  const [[row]] = await getMysql().execute('SELECT saved_properties_count FROM guests WHERE guest_id = ?', [guestId]);
+  return row.saved_properties_count;
+}
+
+module.exports = {
+  toApi, findById, findByIdAnyStatus, findByEmail, insert, updateWithVersion, softDelete,
+  countActiveReservations, search, incrementBookingCount, recomputeSavedCount, EDITABLE,
+};
