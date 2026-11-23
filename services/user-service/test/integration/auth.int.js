@@ -80,6 +80,7 @@ test('10 concurrent sign-ups with one email: exactly one row, the rest 409 EMAIL
   })));
   const statuses = results.map((r) => r.status).sort();
   assert.deepStrictEqual(statuses, [201, ...Array(9).fill(409)]);
+  // Proves the real MySQL duplicate message names the email key (what the route matches on)
   assert.ok(results.filter((r) => r.status === 409).every((r) => r.body.error.code === 'EMAIL_TAKEN'));
   const [[{ n }]] = await db().execute('SELECT COUNT(*) AS n FROM guests WHERE email = ?', [email]);
   assert.strictEqual(n, 1);

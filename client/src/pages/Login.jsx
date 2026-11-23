@@ -7,14 +7,14 @@ import { useSession } from '../api/useSession.js';
 // The session stored here ({ token, user_id, role, expires_at }) is what every
 // other page reads through getSession() / useSession().
 
-export const HOME_FOR_ROLE = { guest: '/', host: '/host/listings', admin: '/dashboards/platform' };
+const HOME_FOR_ROLE = { guest: '/', host: '/host/listings', admin: '/dashboards/platform' };
 
 const EMPTY = { email: '', password: '', confirm: '', first_name: '', last_name: '', name: '', phone: '', location: '' };
 
 const errorText = (e) => (e.details?.length ? e.details.map((d) => `${d.field}: ${d.issue}`).join('; ') : e.message);
 
 /** Only the fields the chosen endpoint accepts, with empty optional fields left out (the API rejects unknown or blank ones). */
-export function signupBody(role, form) {
+function signupBody(role, form) {
   const body = { email: form.email.trim(), password: form.password };
   if (role === 'guest') {
     body.first_name = form.first_name.trim();

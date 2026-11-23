@@ -123,6 +123,13 @@ test('guests/create: duplicate email (any case) -> 409 EMAIL_TAKEN, no event', (
   assert.strictEqual(bus.sent.length, 1);
 }));
 
+test('guests/create: a duplicate on a key other than email is not reported as EMAIL_TAKEN', () => withServer(async ({ base, guests }) => {
+  guests.insert = async () => { const err = new Error("Duplicate entry 'gst_x' for key 'guests.PRIMARY'"); err.code = 'ER_DUP_ENTRY'; throw err; };
+  const r = await call(base, '/guests/create', guestBody());
+  assert.strictEqual(r.status, 500);
+  assert.strictEqual(r.body.error.code, 'INTERNAL_ERROR');
+}));
+
 test('guests/create: validation errors -> 400 with field details', () => withServer(async ({ base, guests }) => {
   const cases = [
     [{ password: 'short' }, 'password'],
