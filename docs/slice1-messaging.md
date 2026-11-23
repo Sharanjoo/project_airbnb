@@ -105,21 +105,32 @@ const allowed = (user, channel) => {
 };
 for (const c of msg.subscribe || []) if (allowed(ws.user, c)) ws.channels.add(c);
 
-// 2. Never send private events to public channels, and strip property frames
-const PUBLIC_PROPERTY_FIELDS = ['property_id', 'status', 'start_date', 'end_date'];
+// 2. Private events never reach public channels; listing channels get public fields only
+const PUBLIC_PROPERTY_FIELDS = ['property_id', 'check_in', 'check_out', 'start_date', 'end_date', 'status', 'new_status'];
 function channelsFor(env) {
   const p = env.payload || {};
-  if (env.event_type === TOPICS.MESSAGE_SENT) return p.receiver_id ? [`user:${p.receiver_id}`] : [];
-  // ...existing user:* rules...
-  if (p.property_id && env.event_type === TOPICS.AVAILABILITY_CHANGED) ch.add(`property:${p.property_id}`);
+  if (env.event_type === TOPICS.MESSAGE_SENT) return p.receiver_id ? [`user:${p.receiver_id}`] : []; // never property:*
+  // ...existing user:* and task:* rules unchanged...
+  // keep booking.* and availability.changed on property:<id>: PropertyDetail (slice 2) shows
+  // "your dates are no longer available" from booking.confirmed/cancelled/rejected check_in/check_out
 }
-// push(): for property:* channels send only PUBLIC_PROPERTY_FIELDS, full payload only to user:* channels
+function push(env) {
+  const full = frame(env, env.payload);
+  const pub = frame(env, Object.fromEntries(PUBLIC_PROPERTY_FIELDS.filter((k) => k in (env.payload || {})).map((k) => [k, env.payload[k]])));
+  for (const ws of wss.clients) {
+    const own = channels.some((c) => c.startsWith('user:') && ws.channels.has(c));      // the people involved
+    const watching = channels.some((c) => c.startsWith('property:') && ws.channels.has(c));
+    if (own) ws.send(full); else if (watching) ws.send(pub);                            // no guest_id, host_id, reason
+  }
+}
 
 // 3. Pin the algorithm
 ws.user = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
 ```
 
-Tests to add on his side: joining `user:<other>` is ignored; `booking.confirmed` is not delivered to a property subscriber; `message.sent` reaches only the receiver. Until this lands, the messaging payload above is what keeps message text out of the gateway.
+Tests to add on his side: joining `user:<other>` is ignored; a property subscriber gets `booking.confirmed` with `check_in`/`check_out` but without `guest_id`, `host_id` or `reason`; `message.sent` reaches only the receiver.
+
+All current pages stay compatible with this fix: My trips and Requests (slice 3) subscribe to their own `user:<id>`, PropertyDetail (slice 2) to `property:<id>` and reads only `check_in`/`check_out`, and Messages relies on the default `user:<id>` channel. Until this lands, the messaging payload above is what keeps message text out of the gateway.
 
 ## Messages page
 
