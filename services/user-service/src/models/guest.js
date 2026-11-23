@@ -1,6 +1,6 @@
 // Data access layer for guests (spec §3.1: entity objects use the DAL to select, insert, update).
 // Every query is parameterised; route handlers never build SQL themselves.
-const { getMysql } = require('@airbnb/common');
+const { getMysql, withTransaction } = require('@airbnb/common');
 
 const PUBLIC_COLUMNS = `guest_id, first_name, last_name, email, phone, location, profile_photo_url,
   preferences, saved_properties_count, booking_count, profile_created_datetime, version`;
@@ -90,12 +90,18 @@ async function updateWithVersion(guestId, version, changes) {
     sets.push(`${column} = ?`);
     params.push(field === 'preferences' && value !== null ? JSON.stringify(value) : value);
   }
-  const [res] = await getMysql().execute(
-    `UPDATE guests SET ${sets.join(', ')}, version = version + 1
-     WHERE guest_id = ? AND version = ? AND is_deleted = FALSE`,
-    [...params, guestId, version],
-  );
-  return { updated: res.affectedRows === 1, row: await findByIdAnyStatus(guestId) };
+  // UPDATE and read-back in one transaction: on success the row stays locked until
+  // commit, so the returned row (and the version in user.updated) is exactly this
+  // edit's result, never a concurrent edit that landed in between.
+  return withTransaction(async (conn) => {
+    const [res] = await conn.execute(
+      `UPDATE guests SET ${sets.join(', ')}, version = version + 1
+       WHERE guest_id = ? AND version = ? AND is_deleted = FALSE`,
+      [...params, guestId, version],
+    );
+    const [rows] = await conn.execute(`SELECT ${PUBLIC_COLUMNS}, is_deleted FROM guests WHERE guest_id = ?`, [guestId]);
+    return { updated: res.affectedRows === 1, row: rows[0] || null };
+  });
 }
 
 /** Soft delete. Returns true if this call deleted the guest, false if it was already deleted or missing. */

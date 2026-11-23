@@ -1,5 +1,5 @@
 // Data access layer for hosts. Same rules as models/guest.js.
-const { getMysql } = require('@airbnb/common');
+const { getMysql, withTransaction } = require('@airbnb/common');
 
 const PUBLIC_COLUMNS = `host_id, name, email, phone, profile_photo_url, verification_status,
   response_rate, response_time, host_since, access_level, version`;
@@ -81,12 +81,18 @@ async function updateWithVersion(hostId, version, changes) {
     sets.push(`${column} = ?`);
     params.push(value);
   }
-  const [res] = await getMysql().execute(
-    `UPDATE hosts SET ${sets.join(', ')}, version = version + 1
-     WHERE host_id = ? AND version = ? AND is_deleted = FALSE`,
-    [...params, hostId, version],
-  );
-  return { updated: res.affectedRows === 1, row: await findByIdAnyStatus(hostId) };
+  // UPDATE and read-back in one transaction: on success the row stays locked until
+  // commit, so the returned row (and the version in user.updated) is exactly this
+  // edit's result, never a concurrent edit that landed in between.
+  return withTransaction(async (conn) => {
+    const [res] = await conn.execute(
+      `UPDATE hosts SET ${sets.join(', ')}, version = version + 1
+       WHERE host_id = ? AND version = ? AND is_deleted = FALSE`,
+      [...params, hostId, version],
+    );
+    const [rows] = await conn.execute(`SELECT ${PUBLIC_COLUMNS}, is_deleted FROM hosts WHERE host_id = ?`, [hostId]);
+    return { updated: res.affectedRows === 1, row: rows[0] || null };
+  });
 }
 
 module.exports = { toApi, toPublic, findById, findByIdAnyStatus, findByEmail, insert, updateWithVersion, EDITABLE };

@@ -165,3 +165,41 @@ test('property.saved: unknown guest is logged and skipped', async () => {
 test('worker subscribes to exactly booking.confirmed and property.saved', () => {
   assert.deepStrictEqual(Object.keys(buildHandlers(fakeDb())).sort(), ['booking.confirmed', 'property.saved']);
 });
+
+// booking_count is a lifetime count of unique confirmed reservations (team decision).
+// Same shape as the booking worker's booking.cancelled outcome on slice3/booking-reads.
+const cancelled = (reservationId) => createEnvelope({
+  eventType: 'booking.cancelled',
+  traceId: '44444444-4444-4444-8444-444444444444',
+  actorId: 'svc:booking-worker',
+  actorType: 'service',
+  entityType: 'reservation',
+  entityId: reservationId,
+  idempotencyKey: `${reservationId}-cancel-key:cancelled`,
+  payload: {
+    reservation_id: reservationId, property_id: 'prp_0001', guest_id: 'gst_0001', host_id: 'hst_0001',
+    check_in: '2030-01-01', check_out: '2030-01-03', previous_status: 'CONFIRMED', new_status: 'CANCELLED', reason: 'plans changed',
+  },
+});
+
+test('booking_count: cancelling a confirmed booking does not reduce it, and a replay does not re-count it', async () => {
+  const db = fakeDb();
+  const h = buildHandlers(db);
+  const confirm = confirmed('res_a');
+  await h['booking.confirmed'](confirm, meta('booking.confirmed'));
+  assert.strictEqual(db.counts.get('gst_0001').booking_count, 1);
+
+  // The worker does not subscribe to booking.cancelled at all...
+  assert.strictEqual(h['booking.cancelled'], undefined);
+  // ...and a cancellation that somehow lands on the confirmed topic is ignored, not subtracted
+  assert.strictEqual(await h['booking.confirmed'](cancelled('res_a'), meta('booking.confirmed')), 'ignored');
+  assert.strictEqual(db.counts.get('gst_0001').booking_count, 1);
+
+  // Replaying the original confirmation after the cancellation is still a duplicate
+  assert.strictEqual(await h['booking.confirmed'](confirm, meta('booking.confirmed')), 'duplicate');
+  assert.strictEqual(db.counts.get('gst_0001').booking_count, 1);
+
+  // A new reservation for the same guest still counts: lifetime total 2, one of them cancelled
+  await h['booking.confirmed'](confirmed('res_b'), meta('booking.confirmed'));
+  assert.strictEqual(db.counts.get('gst_0001').booking_count, 2);
+});

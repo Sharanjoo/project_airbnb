@@ -68,6 +68,7 @@ test.after(async () => {
       [GROUP, reservationIds.map((r) => `booking_count:${r}`)]);
   }
   if (guestIds.length) {
+    await db().query('DELETE FROM reservations WHERE guest_id IN (?)', [guestIds]);
     await db().query('DELETE FROM saved_properties WHERE guest_id IN (?)', [guestIds]);
     await db().query('DELETE FROM guests WHERE guest_id IN (?)', [guestIds]);
   }
@@ -106,6 +107,30 @@ test('booking.confirmed: three reservations -> 3; version unchanged; another gue
   for (let i = 0; i < 3; i++) await onConfirmed(confirmed(g));
   assert.deepStrictEqual(await counts(g), { booking_count: 3, saved_properties_count: 0, version: 1 });
   assert.strictEqual((await counts(other)).booking_count, 0);
+});
+
+test('booking_count is lifetime: the reservation is cancelled, the count stays, a replay does not re-count', async () => {
+  const g = await newGuest();
+  const resId = newId('res');
+  await db().execute(
+    `INSERT INTO reservations (reservation_id, property_id, guest_id, host_id, check_in, check_out, guest_count, price_breakdown, total_price, status, trace_id)
+     VALUES (?, 'prp_0001', ?, 'hst_0001', DATE_ADD(CURRENT_DATE(), INTERVAL 40 DAY), DATE_ADD(CURRENT_DATE(), INTERVAL 42 DAY), 1, '{}', 100, 'CONFIRMED', ?)`,
+    [resId, g, '00000000-0000-4000-8000-000000000000'],
+  );
+  const env = confirmed(g, resId);
+  assert.strictEqual(await onConfirmed(env), 'counted');
+
+  // What the booking worker does on cancel: the reservation row becomes CANCELLED
+  await db().execute("UPDATE reservations SET status = 'CANCELLED', cancellation_reason = 'plans changed' WHERE reservation_id = ?", [resId]);
+  assert.strictEqual((await counts(g)).booking_count, 1, 'cancellation does not reduce booking_count');
+
+  // A full replay of booking.confirmed after the cancellation cannot count it again
+  assert.strictEqual(await onConfirmed(env), 'duplicate');
+  assert.strictEqual((await counts(g)).booking_count, 1);
+
+  // A second reservation for the same guest adds to the lifetime total
+  await onConfirmed(confirmed(g));
+  assert.deepStrictEqual(await counts(g), { booking_count: 2, saved_properties_count: 0, version: 1 });
 });
 
 test('booking.confirmed: unknown guest -> claimed and skipped, nothing else changes', async () => {

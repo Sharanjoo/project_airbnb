@@ -6,7 +6,15 @@
 //   property.saved    (slice 2) -> guests.saved_properties_count recomputed for payload.guest_id
 //                                  from saved_properties (covers save and unsave)
 //
-// Semantics, from the producers' code rather than invented here:
+// Definitions (team decision, Slice 1 phase 2):
+//  - booking_count = lifetime number of unique reservations of this guest that were ever
+//    confirmed. It only goes up. A later cancellation, completion or any other status
+//    change does not reduce it, so this worker does not subscribe to booking.cancelled,
+//    booking.declined, booking.expired or booking.completed.
+//  - saved_properties_count = number of rows in saved_properties for this guest right now
+//    (goes down on unsave).
+//
+// Producer behaviour this relies on, taken from their code:
 //  - property-service publishes property.saved { property_id, guest_id, saved } only
 //    when the saved state really changed, keyed by property_id. saved_properties is
 //    the source of truth, so the count is recomputed from it (idempotent, order independent).
@@ -14,8 +22,6 @@
 //    new_status: 'CONFIRMED' } when a host approves a REQUESTED booking, and republishes
 //    the same event (same idempotency key) after a redelivery. A reservation reaches
 //    CONFIRMED at most once, so the counter is claimed per reservation_id.
-//  - Cancellations, declines, expiries and completions are NOT handled: no spec in the
-//    repo says whether booking_count should go down. See the PR notes.
 process.env.SERVICE_NAME = process.env.SERVICE_NAME || 'user-worker';
 const {
   EventBus, PermanentError, withTransaction: defaultWithTransaction, claimEvent: defaultClaimEvent, TOPICS, logger,
