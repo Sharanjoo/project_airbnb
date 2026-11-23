@@ -31,6 +31,7 @@
     "dev:notify": "npm run dev -w services/notification-gateway",
     "dev:client": "npm run dev -w client",
     "smoke": "node scripts/smoke.js",
+    "smoke:auth": "node scripts/smoke-auth.js",
     "gen:properties": "node scripts/generate-properties.js",
     "bench:search": "node scripts/bench-search.js",
     "demo:cache": "node scripts/demo-cache.js"
