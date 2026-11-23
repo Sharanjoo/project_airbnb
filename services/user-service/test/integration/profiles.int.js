@@ -73,7 +73,24 @@ test('update: 8 concurrent edits with the same version -> exactly one wins, the 
   assert.deepStrictEqual(statuses, [200, ...Array(7).fill(409)]);
   const [[row]] = await db().execute('SELECT version, location FROM guests WHERE guest_id = ?', [g.guest_id]);
   assert.strictEqual(row.version, 2);
-  assert.strictEqual(row.location, results.find((r) => r.status === 200).body.data.location);
+  const winner = results.find((r) => r.status === 200).body.data;
+  assert.strictEqual(row.location, winner.location);
+  assert.strictEqual(winner.version, 2, 'the response is this edit, not a later one');
+  const events = sent.filter((e) => e.topic === 'user.updated' && e.env.entity.entity_id === g.guest_id);
+  assert.strictEqual(events.length, 1, 'only the winner publishes user.updated');
+  assert.strictEqual(events[0].env.idempotency_key, `${g.guest_id}:v2`);
+  assert.strictEqual(events[0].env.payload.version, 2);
+});
+
+test('update: back-to-back edits each publish their own version (no shared idempotency key)', async () => {
+  const g = await newGuest('seq');
+  const me = { id: g.guest_id, role: 'guest' };
+  // Second edit fires as soon as the first returns, using the version it handed back
+  const first = await call('/guests/update', { guest_id: g.guest_id, version: 1, location: 'A' }, me);
+  const second = await call('/guests/update', { guest_id: g.guest_id, version: first.body.data.version, location: 'B' }, me);
+  assert.deepStrictEqual([first.body.data.version, second.body.data.version], [2, 3]);
+  const keys = sent.filter((e) => e.topic === 'user.updated' && e.env.entity.entity_id === g.guest_id).map((e) => e.env.idempotency_key);
+  assert.deepStrictEqual(keys, [`${g.guest_id}:v2`, `${g.guest_id}:v3`]);
 });
 
 test('counters are untouched by a profile update (derived data never bumps version)', async () => {

@@ -182,6 +182,22 @@ async function main() {
     check(approve.status === 202 || approve.status === 200, 'host approved the booking (booking.confirmed published)', describe(approve));
     waited = await waitForCount('booking_count', 1);
     check(waited === true, 'booking_count -> 1', waited);
+
+    // booking_count is a lifetime count of confirmed reservations: cancelling must not lower it.
+    const cancel = await call('booking', '/bookings/cancel', { reservation_id: reservationId, cancellation_reason: 'Smoke test cleanup' },
+      { token: hs.token, headers: { 'Idempotency-Key': randomUUID() } });
+    check(cancel.status === 202 || cancel.status === 200, 'host cancelled the confirmed booking (booking.cancelled published)', describe(cancel));
+    let status;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 15000) {
+      status = (await call('booking', '/bookings/get', { reservation_id: reservationId }, { token: hs.token })).body?.data?.status;
+      if (status === 'CANCELLED') break;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    check(status === 'CANCELLED', 'reservation is CANCELLED', `still ${status}`);
+    await new Promise((r) => setTimeout(r, 3000)); // give user-worker time to (wrongly) react, if it ever did
+    const after = (await call('user', '/guests/get', { guest_id: gs.user_id }, { token: gs.token })).body?.data?.booking_count;
+    check(after === 1, 'booking_count still 1 after the cancellation (lifetime count)', `now ${after}`);
   }
 
   // Tidy up: pause the test listing so it does not show up in demo searches (13.8 / 13.9).
