@@ -121,6 +121,12 @@ services:
     environment: *node-env
     depends_on: *depends-infra
 
+  user-worker:
+    build: { context: ., dockerfile: services/user-service/Dockerfile }
+    command: ["node", "src/worker.js"]
+    environment: { <<: *node-env, SERVICE_NAME: user-worker }
+    depends_on: *depends-infra
+
   property-service:
     build: { context: ., dockerfile: services/property-service/Dockerfile }
     ports: ["8002:8002"]
