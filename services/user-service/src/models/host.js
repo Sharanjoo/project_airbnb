@@ -1,5 +1,5 @@
 // Data access layer for hosts. Same rules as models/guest.js.
-const { getMysql } = require('@airbnb/common');
+const { getMysql, withTransaction } = require('@airbnb/common');
 
 const PUBLIC_COLUMNS = `host_id, name, email, phone, profile_photo_url, verification_status,
   response_rate, response_time, host_since, access_level, version`;
@@ -22,6 +22,16 @@ function toApi(row) {
     host_since: iso(row.host_since),
     version: row.version,
   };
+}
+
+/**
+ * What any signed-in user may see about a host (e.g. on a listing page): no email,
+ * phone or version. The host themself and admins get toApi() instead.
+ */
+function toPublic(row) {
+  if (!row) return null;
+  const { email, phone, version, ...rest } = toApi(row); // eslint-disable-line no-unused-vars
+  return rest;
 }
 
 async function findById(hostId) {
@@ -52,6 +62,37 @@ async function insert(h) {
   return findById(h.host_id);
 }
 
-// TODO (slice 1, phase 2): update with optimistic lock (WHERE version = ?)
+async function findByIdAnyStatus(hostId) {
+  const [rows] = await getMysql().execute(`SELECT ${PUBLIC_COLUMNS}, is_deleted FROM hosts WHERE host_id = ?`, [hostId]);
+  return rows[0] || null;
+}
 
-module.exports = { toApi, findById, findByEmail, insert };
+// Fields a host may change through /hosts/update. verification_status, access_level,
+// response_rate / response_time (analytics), email and password are deliberately absent.
+const EDITABLE = { name: 'name', phone: 'phone', profile_photo_url: 'profile_photo_url' };
+
+/** Optimistic lock, same contract as guests.updateWithVersion. */
+async function updateWithVersion(hostId, version, changes) {
+  const sets = [];
+  const params = [];
+  for (const [field, value] of Object.entries(changes)) {
+    const column = EDITABLE[field];
+    if (!column) throw new Error(`host field ${field} is not editable`);
+    sets.push(`${column} = ?`);
+    params.push(value);
+  }
+  // UPDATE and read-back in one transaction: on success the row stays locked until
+  // commit, so the returned row (and the version in user.updated) is exactly this
+  // edit's result, never a concurrent edit that landed in between.
+  return withTransaction(async (conn) => {
+    const [res] = await conn.execute(
+      `UPDATE hosts SET ${sets.join(', ')}, version = version + 1
+       WHERE host_id = ? AND version = ? AND is_deleted = FALSE`,
+      [...params, hostId, version],
+    );
+    const [rows] = await conn.execute(`SELECT ${PUBLIC_COLUMNS}, is_deleted FROM hosts WHERE host_id = ?`, [hostId]);
+    return { updated: res.affectedRows === 1, row: rows[0] || null };
+  });
+}
+
+module.exports = { toApi, toPublic, findById, findByIdAnyStatus, findByEmail, insert, updateWithVersion, EDITABLE };

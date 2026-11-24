@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { randomUUID } = require('crypto');
 const { logger } = require('@airbnb/common');
+const { createAccountStatus } = require('./accountStatus');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-dev-secret';
 const JWT_ALGORITHM = 'HS256'; // the user service signs with HS256; refuse anything else
@@ -35,7 +36,11 @@ const PUBLIC = [
 const errorBody = (res, status, code, message) =>
   res.status(status).json({ error: { code, message, details: [], retryable: status >= 500 || status === 429 }, trace_id: res.req.traceId });
 
-function createGateway() {
+/**
+ * accounts: decides whether a verified token's account is still allowed in (deleted
+ * accounts are not). Tests pass a stub; the default reads Redis and MySQL.
+ */
+function createGateway({ accounts = createAccountStatus() } = {}) {
   const app = express();
 
   app.use((req, res, next) => {
@@ -48,22 +53,32 @@ function createGateway() {
   app.get('/health', (req, res) => res.json({ status: 'ok', service: 'gateway', routes: Object.keys(ROUTES) }));
 
   // 1. Identify: never trust identity headers from the client; derive them only from
-  //    a verified JWT. Nothing is rejected here, so the rate limiter below can key on
-  //    the verified user instead of on a header the client controls.
-  app.use('/api', (req, res, next) => {
+  //    a verified JWT whose account still exists. Nothing is rejected here, so the rate
+  //    limiter below can key on the verified user instead of on a header the client controls.
+  //    A deleted account's token is treated exactly like an expired one (401 on protected
+  //    routes, anonymous plus X-Auth-Status on public ones), so the client contract is unchanged.
+  app.use('/api', async (req, res, next) => {
     delete req.headers['x-user-id'];
     delete req.headers['x-user-role'];
     const auth = req.get('Authorization') || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
     req.auth = null;
     req.authError = null;
+    req.authUnavailable = false;
     if (token) {
+      let claims = null;
       try {
-        const claims = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
+        claims = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
         if (typeof claims.sub !== 'string' || !claims.sub || typeof claims.role !== 'string' || !claims.role) throw new Error('missing claims');
-        req.auth = claims;
       } catch {
+        claims = null;
         req.authError = 'Invalid or expired token.';
+      }
+      if (claims) {
+        const status = await accounts.check(claims.sub).catch(() => 'unavailable');
+        if (status === 'active') req.auth = claims;
+        else if (status === 'revoked') req.authError = 'This account is no longer active.';
+        else req.authUnavailable = true; // cannot tell right now: never treat it as signed in
       }
     }
     next();
@@ -98,9 +113,14 @@ function createGateway() {
       if (req.authError) {
         delete req.headers.authorization;
         res.set('X-Auth-Status', 'invalid'); // tells the client to drop its stored session
+      } else if (req.authUnavailable) {
+        delete req.headers.authorization; // continue anonymously, but keep the client's session
       }
       return next();
     }
+    // Account status could not be checked (MySQL down): fail closed, and say it is retryable
+    // instead of 401 so the client does not log the user out over an outage.
+    if (req.authUnavailable) return errorBody(res, 503, 'DEPENDENCY_UNAVAILABLE', 'Cannot verify the account right now.');
     return errorBody(res, 401, 'UNAUTHENTICATED', req.authError || 'Missing token.');
   });
 
