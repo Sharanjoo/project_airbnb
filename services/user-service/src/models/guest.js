@@ -113,6 +113,34 @@ async function softDelete(guestId) {
   return res.affectedRows === 1;
 }
 
+const ACTIVE_RESERVATIONS = `SELECT COUNT(*) AS n FROM reservations
+     WHERE guest_id = ? AND status IN ('REQUESTED', 'CONFIRMED') AND check_out > CURRENT_DATE()`;
+
+/**
+ * Soft delete, unless the guest has an active reservation. One transaction:
+ *  - the guest row is locked FOR UPDATE first, so two deletes cannot interleave, and a
+ *    reservation insert (booking-worker) cannot run alongside: its foreign key check needs
+ *    a shared lock on this same guest row. A booking transaction that is already writing
+ *    makes this lock wait until it commits; one that starts later waits for this delete.
+ *  - reservations are then counted with a plain read. Its snapshot starts at that read
+ *    (after the lock was granted), so it sees every booking committed before the delete.
+ *    Deliberately not FOR SHARE: a locking range read takes gap locks on the reservations
+ *    index and can deadlock with other guests' inserts (seen in testing).
+ * Returns { outcome: 'deleted', version } | { outcome: 'already' } | { outcome: 'missing' }
+ *       | { outcome: 'active', active }.
+ */
+async function softDeleteIfNoActiveReservations(guestId) {
+  return withTransaction(async (conn) => {
+    const [[g]] = await conn.execute('SELECT is_deleted, version FROM guests WHERE guest_id = ? FOR UPDATE', [guestId]);
+    if (!g) return { outcome: 'missing' };
+    if (g.is_deleted) return { outcome: 'already' };
+    const [[{ n }]] = await conn.execute(ACTIVE_RESERVATIONS, [guestId]);
+    if (Number(n) > 0) return { outcome: 'active', active: Number(n) };
+    await conn.execute('UPDATE guests SET is_deleted = TRUE, version = version + 1 WHERE guest_id = ?', [guestId]);
+    return { outcome: 'deleted', version: g.version + 1 };
+  });
+}
+
 /** Same rule as property delete (slice 2): a request or confirmed stay that has not ended yet. */
 async function countActiveReservations(guestId) {
   const [rows] = await getMysql().execute(
@@ -179,5 +207,5 @@ async function recomputeSavedCount(guestId) {
 
 module.exports = {
   toApi, findById, findByIdAnyStatus, findByEmail, insert, updateWithVersion, softDelete,
-  countActiveReservations, search, incrementBookingCount, recomputeSavedCount, EDITABLE,
+  softDeleteIfNoActiveReservations, countActiveReservations, search, incrementBookingCount, recomputeSavedCount, EDITABLE,
 };

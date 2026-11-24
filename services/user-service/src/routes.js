@@ -8,6 +8,7 @@ const {
 } = require('@airbnb/common');
 const defaultGuests = require('./models/guest');
 const defaultHosts = require('./models/host');
+const defaultRevocation = require('./revocation');
 const { hashPassword, verifyPassword, issueToken, BCRYPT_MAX_BYTES } = require('./auth');
 
 const PUBLISH_WAIT_MS = Number(process.env.PUBLISH_WAIT_MS || 2000);
@@ -108,7 +109,7 @@ const emailTaken = () => Errors.conflict('EMAIL_TAKEN', 'An account with this em
   { field: 'email', issue: 'already registered' },
 ]);
 
-function buildRouter({ bus, guests = defaultGuests, hosts = defaultHosts }) {
+function buildRouter({ bus, guests = defaultGuests, hosts = defaultHosts, revocation = defaultRevocation }) {
   const r = express.Router();
 
   /**
@@ -197,26 +198,28 @@ function buildRouter({ bus, guests = defaultGuests, hosts = defaultHosts }) {
   }));
 
   // ---- delete (soft). Repeating it is harmless, like /properties/delete.
+  //      The account's outstanding tokens stop working at the gateway: it checks is_deleted
+  //      (durable), and markRevoked() makes that immediate on every gateway instance.
   r.post('/guests/delete', requireRole('guest'), validateBody(guestDeleteSchema), asyncHandler(async (req, res) => {
     const guestId = req.body.guest_id;
     assertSelfOrAdmin(req, guestId);
-    const current = await guests.findByIdAnyStatus(guestId);
-    if (!current) throw Errors.notFound('Guest');
-    if (current.is_deleted) return ok(res, { guest_id: guestId, deleted: true });
-
-    const active = await guests.countActiveReservations(guestId);
-    if (active > 0) {
-      throw Errors.conflict('INVALID_STATE_TRANSITION', `Guest has ${active} active reservation${active > 1 ? 's' : ''}. Cancel ${active > 1 ? 'them' : 'it'} first.`);
+    const result = await guests.softDeleteIfNoActiveReservations(guestId);
+    if (result.outcome === 'missing') throw Errors.notFound('Guest');
+    if (result.outcome === 'active') {
+      const n = result.active;
+      throw Errors.conflict('INVALID_STATE_TRANSITION', `Guest has ${n} active reservation${n > 1 ? 's' : ''}. Cancel ${n > 1 ? 'them' : 'it'} first.`);
     }
-    if (await guests.softDelete(guestId)) {
-      const row = await guests.findByIdAnyStatus(guestId);
+    if (result.outcome === 'deleted') {
+      await revocation.markRevoked(guestId);
       await publish(req, TOPICS.USER_UPDATED, {
         userId: guestId,
         userType: 'guest',
         actor: req.user,
         idempotencyKey: `${guestId}:deleted`,
-        payload: { changed_fields: ['is_deleted'], version: row.version, deleted: true },
+        payload: { changed_fields: ['is_deleted'], version: result.version, deleted: true },
       });
+    } else {
+      await revocation.markRevoked(guestId); // 'already': re-arm the fast path in case Redis lost it
     }
     return ok(res, { guest_id: guestId, deleted: true });
   }));

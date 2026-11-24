@@ -7,6 +7,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
 const jwt = require('jsonwebtoken');
+// Account-status stub: every account exists (revocation is covered in accounts.test.js)
+const ALL_ACTIVE = { check: async () => 'active' };
 
 // Fake upstream that echoes what the gateway forwarded
 const upstream = http.createServer((req, res) => {
@@ -38,7 +40,7 @@ test('gateway token handling', async (t) => {
   await new Promise((r) => upstream.listen(0, r));
   const target = `http://127.0.0.1:${upstream.address().port}`;
   const createGateway = loadGateway({ USER_SERVICE_URL: target, PROPERTY_SERVICE_URL: target, BOOKING_SERVICE_URL: target, RATE_LIMIT_PER_MIN: '1000' });
-  const gw = createGateway().listen(0);
+  const gw = createGateway({ accounts: ALL_ACTIVE }).listen(0);
   const base = `http://127.0.0.1:${gw.address().port}`;
   t.after(() => { gw.close(); upstream.close(); });
 
@@ -115,7 +117,7 @@ test('rate limit is keyed on the verified user or the IP, not on the raw Authori
   await new Promise((r) => (upstream.listening ? r() : upstream.listen(0, r)));
   const target = `http://127.0.0.1:${upstream.address().port}`;
   const createGateway = loadGateway({ USER_SERVICE_URL: target, BOOKING_SERVICE_URL: target, RATE_LIMIT_PER_MIN: '3' });
-  const gw = createGateway().listen(0);
+  const gw = createGateway({ accounts: ALL_ACTIVE }).listen(0);
   const base = `http://127.0.0.1:${gw.address().port}`;
   t.after(() => { gw.close(); upstream.close(); delete process.env.RATE_LIMIT_PER_MIN; });
 

@@ -4,7 +4,7 @@ process.env.NODE_ENV = 'test';
 process.env.BCRYPT_ROUNDS = '4';
 const test = require('node:test');
 const assert = require('node:assert');
-const { createApp, logger, getMysql, newId } = require('@airbnb/common');
+const { createApp, logger, getMysql, getRedis, newId } = require('@airbnb/common');
 const { buildRouter } = require('../../src/routes');
 const guests = require('../../src/models/guest');
 
@@ -30,6 +30,7 @@ test.after(async () => {
   await db().execute('DELETE FROM guests WHERE email LIKE ?', [like]);
   await db().execute('DELETE FROM hosts WHERE email LIKE ?', [like]);
   await db().end();
+  await getRedis().quit().catch(() => {}); // guests/delete writes the revocation marker
 });
 
 const call = async (path, body, user) => {

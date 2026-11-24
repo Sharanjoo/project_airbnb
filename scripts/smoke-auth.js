@@ -200,6 +200,36 @@ async function main() {
     check(after === 1, 'booking_count still 1 after the cancellation (lifetime count)', `now ${after}`);
   }
 
+  // ---- Deleted account: its still-valid token is refused everywhere at the gateway
+  console.log('\nDeleted account');
+  const goneEmail = `smoke-gone-${run}@example.com`;
+  await call('user', '/guests/create', { first_name: 'Gone', last_name: 'Guest', email: goneEmail, password });
+  const gone = (await call('user', '/auth/login', { email: goneEmail, password })).body?.data;
+  check(gone?.token, 'second guest signed up and logged in');
+  if (gone?.token) {
+    const del = await call('user', '/guests/delete', { guest_id: gone.user_id }, { token: gone.token });
+    check(del.status === 200, 'guest deleted their account', describe(del));
+    const later = new Date(start.getTime() + 10 * 86400000).toISOString().slice(0, 10);
+    const after = new Date(start.getTime() + 12 * 86400000).toISOString().slice(0, 10);
+    for (const [service, path, body, headers] of [
+      ['booking', '/bookings/request', { property_id: propertyId, check_in: later, check_out: after, guest_count: 1 }, { 'Idempotency-Key': randomUUID() }],
+      ['property', '/properties/save', { property_id: propertyId, saved: true }],
+      ['messaging', '/threads/open', { property_id: propertyId }],
+      ['user', '/guests/get', { guest_id: gone.user_id }],
+    ]) {
+      const r = await call(service, path, body, { token: gone.token, headers });
+      check(r.status === 401 && r.body?.error?.code === 'UNAUTHENTICATED', `old token refused: ${service} ${path} -> 401`, describe(r));
+    }
+    const pub = await fetch(`${GATEWAY}/api/v1/property/properties/get`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${gone.token}` }, body: JSON.stringify({ property_id: propertyId }),
+    });
+    check(pub.status === 200 && pub.headers.get('x-auth-status') === 'invalid', 'public page still loads, and the client is told to drop the session');
+    const relog = await call('user', '/auth/login', { email: goneEmail, password });
+    check(relog.status === 401, 'deleted account cannot log in again', describe(relog));
+    const stillMe = await call('user', '/guests/get', { guest_id: gs.user_id }, { token: gs.token });
+    check(stillMe.status === 200, 'other active guests are unaffected', describe(stillMe));
+  }
+
   // Tidy up: pause the test listing so it does not show up in demo searches (13.8 / 13.9).
   const pause = await call('property', '/properties/update',
     { property_id: propertyId, version: listing.body.data.version, status: 'inactive' }, { token: hs.token });
