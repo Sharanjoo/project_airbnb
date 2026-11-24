@@ -1,6 +1,6 @@
-"""The agents from spec §7.1. Each is a stub with the right subscriptions and
-outputs; Slice 5 fills in the logic. Round 0 opinions are independent: no
-analysis agent subscribes to debate.round.0."""
+"""The agents from spec §7.1. Round 0 opinions are independent: no analysis agent
+subscribes to debate.round.0. The Chair is in chair.py; the Explainer is a plain
+function the Chair calls (debate.explain), so it needs no process of its own."""
 import logging
 import re
 import time
@@ -9,6 +9,8 @@ from app.llm import get_provider
 from app.pool import load_pool
 
 from .base import BaseAgent, PermanentError
+from .chair import ChairAgent
+from .debate import answer_and_vote
 from .harness import check_opinion
 from .parsing import ParseError, parse_request
 from .scoring import RANKERS, checks
@@ -113,8 +115,34 @@ class AnalysisAgent(BaseAgent):
             await self.publish("debate.round.0", trace_id=env["trace_id"], task_id=task["task_id"], payload=payload,
                                idem=f"{task['task_id']}:{self.name}:round0")
         elif topic == "debate.round.1":
-            # TODO (checkpoint 5): answer challenges addressed to self.name, then vote -> debate.round.2
-            log.info("%s would answer challenges for %s", self.name, env["trace_id"])
+            await self.on_round1(env)
+
+    async def on_round1(self, env):
+        """Answer challenges and vote, or redo a message the harness rejected."""
+        if env["actor_id"] != "agent:chair":
+            raise PermanentError("debate.round.1 must come from agent:chair")
+        task = await self.open_task(env)
+        if not task:
+            return
+        retry = env["payload"].get("retry")
+        if retry:
+            if retry.get("agent") != self.name:
+                return
+            log.info("%s retrying round %s for %s: %s", self.name, retry.get("round"), env["trace_id"], retry.get("reason"))
+        if retry and retry.get("round") == 0:
+            payload = self.reflect(env, self.opinion(task["parsed_request"]["requirements"]))
+            await self.publish("debate.round.0", trace_id=env["trace_id"], task_id=task["task_id"], payload=payload,
+                               idem=f"{task['task_id']}:{self.name}:round0:retry")
+            return
+        # A retry carries no challenges; the original round-1 message is on the task.
+        round1 = task["round1"] if retry else env["payload"]
+        if self.name not in round1["voters"]:
+            return
+        started = time.perf_counter()
+        payload = answer_and_vote(self.name, round1, task["parsed_request"]["requirements"], self.pool)
+        payload["latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
+        await self.publish("debate.round.2", trace_id=env["trace_id"], task_id=task["task_id"], payload=payload,
+                           idem=f"{task['task_id']}:{self.name}:round2{':retry' if retry else ''}")
 
 
 class MatchingAgent(AnalysisAgent):
@@ -135,22 +163,4 @@ class FairnessAgent(AnalysisAgent):
     name = "fairness"
 
 
-class ChairAgent(BaseAgent):
-    """Booking Assistant Chair: plan, collect round 0, challenge, count votes, decide, publish ai.results."""
-    name = "chair"
-    group = "chair-cg"
-    subscribe = ["ai.requests", "debate.round.0", "debate.round.2"]
-
-    async def handle(self, env, topic):
-        # TODO: per-trace state keyed by trace_id; deadlines (config.ROUND0_DEADLINE_S);
-        # disagreement_score() from harness; decision rule from API doc §11
-        log.info("chair saw %s for %s", topic, env["trace_id"])
-
-
-class ExplainerAgent(BaseAgent):
-    """Explanation Skill: technical result -> plain language."""
-    name = "explainer"
-    subscribe: list[str] = []  # TODO: decide whether the Chair calls it via a topic or library
-
-
-AGENTS = {a.name: a for a in (ParserAgent, MatchingAgent, RiskAgent, FairnessAgent, ChairAgent, ExplainerAgent)}
+AGENTS = {a.name: a for a in (ParserAgent, MatchingAgent, RiskAgent, FairnessAgent, ChairAgent)}

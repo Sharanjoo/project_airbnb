@@ -119,3 +119,13 @@ def test_structured_only_request_is_accepted(c):
 def test_unknown_route_uses_common_error_body(c):
     r = c.get("/ai/nope", headers=OWNER)
     assert r.status_code == 404 and r.json()["error"]["code"] == "NOT_FOUND" and r.json()["trace_id"]
+
+
+def test_overdue_task_is_closed_even_if_the_chair_is_down(c, monkeypatch):
+    from app import config
+    tid = create(c).json()["data"]["task_id"]
+    create(c), create(c)
+    assert create(c).status_code == 429
+    monkeypatch.setattr(config, "TASK_DEADLINE_S", -10)
+    assert create(c).status_code == 202  # old ones no longer hold the slots
+    assert c.get(f"/ai/tasks/{tid}", headers=OWNER).json()["data"]["status"] == "TIMED_OUT"

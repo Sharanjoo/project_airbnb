@@ -108,3 +108,37 @@ def test_messages_are_deduped_ordered_and_isolated_by_trace(run):
         assert [m["round"] for m in msgs] == [0, 2] and msgs[0]["payload"] == {"n": 1}
         assert len(await s.list_messages(b)) == 1
     run(t)
+
+
+def test_frames_are_appended_once_per_key(run):
+    async def t(s):
+        tid = (await s.create(task()))["task_id"]
+        assert await s.add_frame(tid, "plan", {"type": "plan.created"})
+        assert not await s.add_frame(tid, "plan", {"type": "plan.created"})
+        assert not await s.add_frame("tsk_missing", "plan", {})
+        await s.transition(tid, "PLANNING")
+        assert [f["type"] for f in (await s.get(tid))["frames"]] == ["status", "plan.created", "status"]
+    run(t)
+
+
+def test_feedback_is_stored_once(run):
+    async def t(s):
+        first = await s.save_feedback({"feedback_id": "fbk_1", "label": "correct"})
+        assert await s.save_feedback({"feedback_id": "fbk_1", "label": "incorrect"}) == first
+    run(t)
+
+
+def test_version_promotion(run):
+    async def t(s):
+        assert (await s.current_version())["version_id"] == "matcher-v1"
+        if isinstance(s, InMemoryTaskStore):
+            s.versions["v2"] = {"version_id": "v2", "parent_version": "matcher-v1", "status": "candidate"}
+        else:
+            await s.db.agent_versions.insert_one({"version_id": "v2", "parent_version": "matcher-v1", "status": "candidate"})
+        await s.promote(await s.get_version("v2"), await s.current_version(), {"promoted_at": "2026-11-24T00:00:00Z"})
+        assert (await s.current_version())["version_id"] == "v2"
+        assert [v["status"] for v in await s.list_versions()] == ["candidate", "promoted"]
+        await s.promote(await s.get_version("matcher-v1"), await s.current_version(), {"promoted_at": "2026-11-25T00:00:00Z"})
+        assert [v["status"] for v in await s.list_versions()] == ["promoted", "rolled_back"]
+        assert await s.get_version("nope") is None
+    run(t)
