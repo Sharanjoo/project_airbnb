@@ -53,4 +53,4 @@ function issueToken({ userId, role }) {
   return { token, expires_at: new Date(exp * 1000).toISOString(), user_id: userId, role };
 }
 
-module.exports = { hashPassword, verifyPassword, issueToken, BCRYPT_MAX_BYTES, JWT_ALGORITHM };
+module.exports = { hashPassword, verifyPassword, issueToken, ttlSeconds, BCRYPT_MAX_BYTES, JWT_ALGORITHM };

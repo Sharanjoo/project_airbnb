@@ -45,6 +45,15 @@ function fakeGuests() {
       return true;
     },
     async countActiveReservations(id) { return active.get(id) || 0; },
+    async softDeleteIfNoActiveReservations(id) {
+      const r = rows.get(id);
+      if (!r) return { outcome: 'missing' };
+      if (r.is_deleted) return { outcome: 'already' };
+      if (active.get(id)) return { outcome: 'active', active: active.get(id) };
+      r.is_deleted = 1;
+      r.version += 1;
+      return { outcome: 'deleted', version: r.version };
+    },
     async search({ q, includeDeleted, page, pageSize }) {
       api.lastSearch = { q, includeDeleted, page, pageSize };
       const all = [...rows.values()].filter((r) => includeDeleted || !r.is_deleted)
@@ -80,6 +89,11 @@ function fakeHosts() {
   };
 }
 
+function fakeRevocation() {
+  const marked = [];
+  return { marked, redisUp: true, async markRevoked(id) { marked.push(id); return this.redisUp; } };
+}
+
 function fakeBus() {
   const sent = [];
   return { sent, publish: async (topic, env, key) => { sent.push({ topic, env, key }); } };
@@ -93,12 +107,13 @@ async function withServer(fn) {
   hosts.seed();
   hosts.seed({ host_id: 'hst_0002', name: 'Luis Ortega', email: 'luis.host@example.com', access_level: 'standard' });
   const bus = fakeBus();
+  const revocation = fakeRevocation();
   const app = createApp({ name: 'user-test', logger });
-  app.use(buildRouter({ bus, guests, hosts }));
+  app.use(buildRouter({ bus, guests, hosts, revocation }));
   app.finalize();
   const server = app.listen(0);
   try {
-    await fn({ base: `http://127.0.0.1:${server.address().port}`, guests, hosts, bus });
+    await fn({ base: `http://127.0.0.1:${server.address().port}`, guests, hosts, bus, revocation });
   } finally {
     server.close();
   }
@@ -227,13 +242,28 @@ test('guests/delete: soft delete -> 200, user.updated deleted:true; repeat is ha
   assert.strictEqual((await call(base, '/guests/get', { guest_id: 'gst_0001' }, ANA)).status, 404);
 }));
 
-test('guests/delete: active reservations -> 409 INVALID_STATE_TRANSITION, not deleted', () => withServer(async ({ base, guests, bus }) => {
+test('guests/delete: revokes the account\'s tokens (Redis marker), and re-arms it on a repeat', () => withServer(async ({ base, revocation }) => {
+  await call(base, '/guests/delete', { guest_id: 'gst_0001' }, ANA);
+  assert.deepStrictEqual(revocation.marked, ['gst_0001']);
+  await call(base, '/guests/delete', { guest_id: 'gst_0001' }, ANA);
+  assert.deepStrictEqual(revocation.marked, ['gst_0001', 'gst_0001'], 'a repeat restores the marker in case Redis lost it');
+}));
+
+test('guests/delete: Redis down -> still deleted (MySQL is the source of truth), 200', () => withServer(async ({ base, guests, revocation }) => {
+  revocation.redisUp = false;
+  const r = await call(base, '/guests/delete', { guest_id: 'gst_0001' }, ANA);
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(guests.rows.get('gst_0001').is_deleted, 1);
+}));
+
+test('guests/delete: active reservations -> 409 INVALID_STATE_TRANSITION, not deleted, not revoked', () => withServer(async ({ base, guests, bus, revocation }) => {
   guests.active.set('gst_0001', 2);
   const r = await call(base, '/guests/delete', { guest_id: 'gst_0001' }, ANA);
   assert.strictEqual(r.status, 409);
   assert.strictEqual(r.body.error.code, 'INVALID_STATE_TRANSITION');
   assert.strictEqual(guests.rows.get('gst_0001').is_deleted, 0);
   assert.strictEqual(bus.sent.length, 0);
+  assert.deepStrictEqual(revocation.marked, []);
 }));
 
 test('guests/delete: someone else -> 403, host -> 403, unknown -> 404, admin -> 200', () => withServer(async ({ base }) => {

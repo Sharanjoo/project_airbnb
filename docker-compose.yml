@@ -114,6 +114,8 @@ services:
       REVIEW_SERVICE_URL: http://review-service:8005
       ANALYTICS_SERVICE_URL: http://analytics-service:8006
       AI_SERVICE_URL: http://ai-service:8007
+    # reads guests/hosts.is_deleted (MySQL) and auth:revoked:* (Redis) to refuse deleted accounts' tokens
+    depends_on: *depends-infra
 
   user-service:
     build: { context: ., dockerfile: services/user-service/Dockerfile }
