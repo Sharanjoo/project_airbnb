@@ -24,19 +24,21 @@ function fakeRepo({ reservations = [], mongoDown = false } = {}) {
     },
     async markPublished(id, field = 'event_published') { docs.get(id)[field] = true; },
     async findById(id) { down(); return docs.has(id) ? { ...docs.get(id) } : null; },
-    async listByProperty(pid, { page, pageSize }) {
-      const all = [...docs.values()].filter((d) => d.property_id === pid)
-        .sort((a, b) => b.created_datetime.localeCompare(a.created_datetime));
+    async listByProperty(pid, { page, pageSize, sort }) {
+      const newest = (a, b) => b.created_datetime.localeCompare(a.created_datetime);
+      const order = { newest, rating_desc: (a, b) => b.rating - a.rating || newest(a, b), rating_asc: (a, b) => a.rating - b.rating || newest(a, b) };
+      const all = [...docs.values()].filter((d) => d.property_id === pid).sort(order[sort]);
       const avg = all.length ? Math.round((all.reduce((s, d) => s + d.rating, 0) / all.length) * 100) / 100 : null;
-      return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, average_rating: avg };
+      return { items: all.slice((page - 1) * pageSize, page * pageSize), review_count: all.length, average_rating: avg };
     },
-    async setResponse(id, response) {
+    async setResponse(id, text) {
       const d = docs.get(id);
-      if (!d || d.host_response) return null;
-      d.host_response = response;
+      if (!d || d.response_text) return null;
+      d.response_text = text;
+      d.response_datetime = new Date().toISOString();
       return { ...d };
     },
-    async guestNames(ids) { return new Map(ids.map((id) => [id, 'Ana G.'])); },
+    async guestFirstNames(ids) { return new Map(ids.map((id) => [id, 'Ana'])); },
     async propertyExists(pid) { return pid === 'prp_1' ? 'active' : null; },
   };
 }
@@ -109,7 +111,9 @@ test('create: guest reviews a completed stay -> 201, stored with property_id + r
     assert.match(body.data.review_id, /^rev_/);
     assert.strictEqual(body.data.property_id, 'prp_1');
     assert.strictEqual(body.data.rating, 4);
-    assert.strictEqual(body.data.host_response, null);
+    assert.strictEqual(body.data.response_text, null);
+    assert.strictEqual(body.data.guest_id, 'gst_1');
+    assert.strictEqual(body.data.host_id, 'hst_1');
     assert.strictEqual('_id' in body.data, false);
 
     const stored = repo.docs.get(body.data.review_id);
@@ -124,8 +128,9 @@ test('create: guest reviews a completed stay -> 201, stored with property_id + r
     assert.strictEqual(key, 'prp_1');
     assert.strictEqual(env.trace_id, '7d3f8a2e-4b1c-4e9a-9f6d-2c8b1a0e5f37');
     assert.strictEqual(env.actor_id, 'gst_1');
+    // exactly the API doc §10 payload
     assert.deepStrictEqual(env.payload, {
-      review_id: body.data.review_id, reservation_id: 'res_done', property_id: 'prp_1', host_id: 'hst_1', guest_id: 'gst_1', rating: 4,
+      review_id: body.data.review_id, reservation_id: 'res_done', property_id: 'prp_1', host_id: 'hst_1', rating: 4,
     });
   }));
 
@@ -135,6 +140,7 @@ test('create: second review of the same stay -> 409 ALREADY_REVIEWED, nothing ne
     const { status, body } = await call(base, '/reviews/create', review({ rating: 1 }), GUEST);
     assert.strictEqual(status, 409);
     assert.strictEqual(body.error.code, 'ALREADY_REVIEWED');
+    assert.strictEqual(body.error.message, 'This reservation already has a review.');
     assert.strictEqual(bus.sent.length, 1);
   }));
 
@@ -143,16 +149,18 @@ test('create: stay not completed yet -> 422', () =>
     const { status, body } = await call(base, '/reviews/create', review({ reservation_id: 'res_upcoming' }), GUEST);
     assert.strictEqual(status, 422);
     assert.strictEqual(body.error.code, 'BUSINESS_RULE_VIOLATION');
+    assert.strictEqual(body.error.message, 'You can review a stay after checkout.');
     assert.strictEqual(bus.sent.length, 0);
   }));
 
-test('create: someone else\'s stay or unknown id -> 404 (same answer)', () =>
-  withService({}, async ({ base }) => {
+test('create: someone else\'s stay -> 403, unknown reservation -> 404', () =>
+  withService({}, async ({ base, bus }) => {
     const other = await call(base, '/reviews/create', review(), OTHER_GUEST);
+    assert.strictEqual(other.status, 403);
+    assert.strictEqual(other.body.error.code, 'FORBIDDEN');
     const unknown = await call(base, '/reviews/create', review({ reservation_id: 'res_nope' }), GUEST);
-    assert.strictEqual(other.status, 404);
     assert.strictEqual(unknown.status, 404);
-    assert.strictEqual(other.body.error.message, unknown.body.error.message);
+    assert.strictEqual(bus.sent.length, 0);
   }));
 
 test('create: validation and roles', () =>
@@ -196,13 +204,14 @@ test('create: MongoDB down -> 503 DEPENDENCY_UNAVAILABLE', () =>
   }));
 
 // ---------------------------------------------------------------- get / byProperty
-test('get: public, hides guest_id and reservation_id; unknown -> 404', () =>
+test('get: public, guest_first_name only (no guest_id or reservation_id); unknown -> 404', () =>
   withService({}, async ({ base }) => {
     const created = await call(base, '/reviews/create', review(), GUEST);
     const { status, body } = await call(base, '/reviews/get', { review_id: created.body.data.review_id });
     assert.strictEqual(status, 200);
     assert.strictEqual(body.data.rating, 4);
-    assert.strictEqual(body.data.guest_name, 'Ana G.');
+    assert.strictEqual(body.data.guest_first_name, 'Ana');
+    assert.strictEqual(body.data.response_text, null);
     assert.strictEqual('guest_id' in body.data, false);
     assert.strictEqual('reservation_id' in body.data, false);
     assert.strictEqual('event_published' in body.data, false);
@@ -211,7 +220,7 @@ test('get: public, hides guest_id and reservation_id; unknown -> 404', () =>
     assert.strictEqual(missing.status, 404);
   }));
 
-test('byProperty: newest first, paged, with average; unknown property -> 404', () =>
+test('byProperty: newest first by default, paged, with average_rating and review_count; unknown property -> 404', () =>
   withService({}, async ({ base }) => {
     await call(base, '/reviews/create', review({ rating: 5 }), GUEST);
     await new Promise((r) => setTimeout(r, 5));
@@ -220,20 +229,38 @@ test('byProperty: newest first, paged, with average; unknown property -> 404', (
     const { status, body } = await call(base, '/reviews/byProperty', { property_id: 'prp_1', page_size: 1 });
     assert.strictEqual(status, 200);
     assert.strictEqual(body.data.total, 2);
+    assert.strictEqual(body.data.review_count, 2);
+    assert.strictEqual(body.data.sort, 'newest');
     assert.strictEqual(body.data.page, 1);
     assert.strictEqual(body.data.page_size, 1);
     assert.strictEqual(body.data.average_rating, 3.5);
     assert.strictEqual(body.data.items.length, 1);
     assert.strictEqual(body.data.items[0].rating, 2); // newest
     assert.strictEqual('guest_id' in body.data.items[0], false);
+    assert.strictEqual(body.data.items[0].guest_first_name, 'Ana');
 
     const page2 = await call(base, '/reviews/byProperty', { property_id: 'prp_1', page: 2, page_size: 1 });
     assert.strictEqual(page2.body.data.items[0].rating, 5);
 
     const unknown = await call(base, '/reviews/byProperty', { property_id: 'prp_nope' });
     assert.strictEqual(unknown.status, 404);
-    const tooBig = await call(base, '/reviews/byProperty', { property_id: 'prp_1', page_size: 51 });
+    const tooBig = await call(base, '/reviews/byProperty', { property_id: 'prp_1', page_size: 101 });
     assert.strictEqual(tooBig.status, 400);
+    const badSort = await call(base, '/reviews/byProperty', { property_id: 'prp_1', sort: 'oldest' });
+    assert.strictEqual(badSort.status, 400);
+  }));
+
+test('byProperty: rating_desc / rating_asc order; default page_size is 20', () =>
+  withService({}, async ({ base }) => {
+    await call(base, '/reviews/create', review({ rating: 2 }), GUEST);
+    await new Promise((r) => setTimeout(r, 5));
+    await call(base, '/reviews/create', review({ reservation_id: 'res_done2', rating: 5 }), OTHER_GUEST);
+
+    const desc = await call(base, '/reviews/byProperty', { property_id: 'prp_1', sort: 'rating_desc' });
+    assert.deepStrictEqual(desc.body.data.items.map((x) => x.rating), [5, 2]);
+    assert.strictEqual(desc.body.data.page_size, 20);
+    const asc = await call(base, '/reviews/byProperty', { property_id: 'prp_1', sort: 'rating_asc' });
+    assert.deepStrictEqual(asc.body.data.items.map((x) => x.rating), [2, 5]);
   }));
 
 // ---------------------------------------------------------------- respond
@@ -243,19 +270,19 @@ test('respond: listing host answers once -> 200, review.responded published', ()
     const id = created.body.data.review_id;
     const { status, body } = await call(base, '/reviews/respond', { review_id: id, response_text: 'Thanks for staying!' }, HOST);
     assert.strictEqual(status, 200);
-    assert.strictEqual(body.data.host_response.response_text, 'Thanks for staying!');
-    assert.ok(body.data.host_response.responded_at.endsWith('Z'));
+    assert.strictEqual(body.data.response_text, 'Thanks for staying!');
+    assert.ok(body.data.response_datetime.endsWith('Z'));
     const ev = bus.sent.find((s) => s.topic === 'review.responded');
     assert.ok(ev);
     assert.strictEqual(ev.env.actor_type, 'host');
-    assert.strictEqual(ev.env.payload.guest_id, 'gst_1');
+    assert.deepStrictEqual(ev.env.payload, { review_id: id, property_id: 'prp_1', host_id: 'hst_1' }); // API doc §10
 
     const twice = await call(base, '/reviews/respond', { review_id: id, response_text: 'Again' }, HOST);
     assert.strictEqual(twice.status, 409);
-    assert.strictEqual(twice.body.error.code, 'ALREADY_RESPONDED');
+    assert.strictEqual(twice.body.error.code, 'INVALID_STATE_TRANSITION');
   }));
 
-test('respond: another host -> 403, guest -> 403, unknown review -> 404, empty text -> 400', () =>
+test('respond: another host -> 403, guest -> 403, unknown review -> 404, empty or over 1000 characters -> 400', () =>
   withService({}, async ({ base }) => {
     const created = await call(base, '/reviews/create', review(), GUEST);
     const id = created.body.data.review_id;
@@ -263,6 +290,8 @@ test('respond: another host -> 403, guest -> 403, unknown review -> 404, empty t
     assert.strictEqual((await call(base, '/reviews/respond', { review_id: id, response_text: 'Hi' }, GUEST)).status, 403);
     assert.strictEqual((await call(base, '/reviews/respond', { review_id: 'rev_nope', response_text: 'Hi' }, HOST)).status, 404);
     assert.strictEqual((await call(base, '/reviews/respond', { review_id: id, response_text: '   ' }, HOST)).status, 400);
+    assert.strictEqual((await call(base, '/reviews/respond', { review_id: id, response_text: 'x'.repeat(1001) }, HOST)).status, 400);
+    assert.strictEqual((await call(base, '/reviews/respond', { review_id: id, response_text: 'x'.repeat(1000) }, HOST)).status, 200);
   }));
 
 test('respond: Kafka down still saves the answer -> 200', () =>
@@ -271,5 +300,5 @@ test('respond: Kafka down still saves the answer -> 200', () =>
     bus.fail = true;
     const { status } = await call(base, '/reviews/respond', { review_id: created.body.data.review_id, response_text: 'Thank you!' }, HOST);
     assert.strictEqual(status, 200);
-    assert.strictEqual(repo.docs.get(created.body.data.review_id).host_response.response_text, 'Thank you!');
+    assert.strictEqual(repo.docs.get(created.body.data.review_id).response_text, 'Thank you!');
   }));
