@@ -296,7 +296,7 @@ async function platform(w) {
   const status = Object.fromEntries(stepStatus.map((s) => [s._id, s.count]));
   return {
     events_by_topic: Object.fromEntries(byTopic.map((r) => [r._id, r.count])),
-    throughput_per_min: w.minutes ? round(total / w.minutes, 1) : null,
+    throughput_per_min: w.minutes ? round(total / w.minutes, 3) : null, // 3 places: quiet periods are well under 1/min
     errors: status.error || 0,
     retries: status.retry || 0,
     rejected_envelopes: rejected,

@@ -81,6 +81,9 @@ function validateQuery(schema) {
   return (req, res, next) => {
     const { error, value } = schema.validate(req.query, { abortEarly: false, allowUnknown: false, convert: true });
     if (error) return next(Errors.validation(error.details.map((d) => ({ field: d.path.join('.'), issue: d.message }))));
+    // Joi's isoDate() rewrites "2026-10-31" to "2026-10-31T00:00:00.000Z"; keep what the caller
+    // sent, because a plain date `to` means "through the end of that day"
+    for (const k of ['from', 'to']) if (typeof req.query[k] === 'string') value[k] = req.query[k];
     req.q = value;
     next();
   };

@@ -94,6 +94,15 @@ test('windows: date-only `to` covers that whole day; default is the last 30 days
   assert.strictEqual(g.to.slice(11), '00:00:00.000Z');
 });
 
+test('windows through HTTP: a date-only `to` still includes that whole day', () =>
+  withService({}, async ({ base, stats }) => {
+    const { body } = await get(base, '/analytics/host/dashboard?from=2026-10-26&to=2026-11-24', HOST);
+    assert.strictEqual(body.data.from, '2026-10-26T00:00:00.000Z');
+    assert.strictEqual(body.data.to, '2026-11-25T00:00:00.000Z'); // 30 whole days
+    const w = callOf(stats, 'hostDashboard').args[1];
+    assert.strictEqual(w.toDay, '2026-11-25');
+  }));
+
 test('fillDays, median, conversion and producer mapping', () => {
   assert.deepStrictEqual(
     fillDays('2026-11-01', '2026-11-04', new Map([['2026-11-02', { count: 3 }]]), () => ({ count: 0 })),

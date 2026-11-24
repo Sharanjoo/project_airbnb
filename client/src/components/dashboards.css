@@ -1,0 +1,72 @@
+/* Slice 4 dashboards. Kept out of styles.css so slices don't edit the same file.
+   Series colours: the validated reference palette (blue, orange); all checks pass
+   for colour-blind separation and contrast on this surface. */
+.dash {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --grid: #eceef0;
+  --axis: #5d6670;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.dash-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.dash-head h1 { margin: 0; font-size: 1.5rem; }
+.dash-head p { margin: 4px 0 0; }
+
+.dash-filters { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.dash-filters label { flex: 0 0 auto; }
+.dash-filters button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.dash-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.dash-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+.dash-tile-label { font-size: 0.8rem; color: var(--muted); }
+.dash-tile-value { font-size: 1.5rem; font-weight: 600; }
+.dash-tile-hint { font-size: 0.75rem; color: var(--muted); }
+
+.dash-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.dash-panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.dash-panel.wide { grid-column: 1 / -1; }
+.dash-panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.dash-panel h2 { margin: 0; font-size: 1rem; }
+.dash-panel-head p { margin: 2px 0 0; font-size: 0.8rem; }
+.dash-section-title { margin: 8px 0 0; font-size: 1.15rem; }
+.dash-link { border: none; background: none; color: var(--accent); padding: 0; font-size: 0.85rem; white-space: nowrap; }
+
+.dash-chart { position: relative; }
+.dash-chart svg { display: block; overflow: visible; max-width: 100%; }
+.dash-grid { stroke: var(--grid); stroke-width: 1; }
+.dash-baseline { stroke: #c9ced3; stroke-width: 1; }
+.dash-axis { fill: var(--axis); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dash-value { fill: var(--ink); font-size: 11px; font-weight: 600; }
+.dash-line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.dash-dot { fill: var(--series-1); stroke: #fff; stroke-width: 2; }
+
+.dash-tooltip {
+  position: absolute; transform: translate(-50%, -100%); pointer-events: none;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px 8px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 8%); font-size: 0.8rem; white-space: nowrap;
+}
+.dash-legend { display: flex; gap: 16px; list-style: none; padding: 0; margin: 0 0 6px; font-size: 0.8rem; color: var(--muted); }
+.dash-legend li { display: flex; align-items: center; gap: 6px; }
+.dash-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+.dash-bars { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.dash-bars li { display: grid; grid-template-columns: minmax(90px, 32%) 1fr; gap: 10px; align-items: center; font-size: 0.85rem; }
+.dash-bars li.hover .dash-bar-fill { filter: brightness(0.9); }
+.dash-bar-label { color: var(--ink); overflow-wrap: anywhere; }
+.dash-bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dash-bar-fill { height: 12px; background: var(--series-1); border-radius: 0 4px 4px 0; flex: 0 0 auto; }
+.dash-bar-value { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dash-bar-value small { color: var(--muted); }
+
+.dash-table-wrap { overflow-x: auto; }
+.dash-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.dash-table th, .dash-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+.dash-table th { color: var(--muted); font-weight: 500; }
+.dash-table td { font-variant-numeric: tabular-nums; }
+.dash-empty { padding: 24px 0; text-align: center; }
+.dash-status { display: inline-flex; align-items: center; gap: 4px; }
+
+.dash-trace-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.dash-trace-form label { flex: 1 1 320px; }
+.dash-step-bar { height: 8px; background: var(--series-1); border-radius: 4px; min-width: 2px; display: inline-block; vertical-align: middle; }
