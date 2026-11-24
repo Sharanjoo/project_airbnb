@@ -3,32 +3,38 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { randomUUID } = require('crypto');
 const { createApp, createEnvelope, logger } = require('@airbnb/common');
-const { buildRouter } = require('../src/routes');
-const { fillDays, median, toSteps } = require('../src/models/stats');
+const { buildRouter, rangeWindow, daysWindow } = require('../src/routes');
+const { fillDays, median, conversion, producerOf } = require('../src/models/stats');
 
 // ---------------------------------------------------------------- fakes
-function fakeStats({ traceEvents = [], down = false, ownProperties = ['prp_1'] } = {}) {
+// Same interface as src/models/stats.js and src/models/kafkaStats.js.
+function fakeStats({ trace = { steps: [], participants: new Set() }, down = false, owners = { prp_1: 'hst_1', prp_2: 'hst_2' } } = {}) {
   const calls = [];
   const stored = new Map();
+  const rejected = [];
   const rec = (name, result) => async (...args) => {
     calls.push({ name, args });
     if (down) throw new Error('db down');
     return typeof result === 'function' ? result(...args) : result;
   };
+  const steps = { viewed: 10, saved: 4, requested: 2, confirmed: 1, completed: 1 };
   return {
     calls,
     stored,
-    platform: rec('platform', { users: { guests: 2, hosts: 1 } }),
-    trace: rec('trace', traceEvents),
-    host: rec('host', { revenue: 480 }),
-    guest: rec('guest', { saved_properties: 3 }),
-    funnel: rec('funnel', (hostId, { propertyId }) => {
-      const ids = propertyId ? ownProperties.filter((p) => p === propertyId) : ownProperties;
-      return { property_ids: ids, steps: toSteps([10, 4, 2, 1, 1]) };
+    rejected,
+    propertyOwner: rec('propertyOwner', (id) => owners[id] || null),
+    funnel: rec('funnel', () => ({ steps, conversion: conversion(steps) })),
+    hostDashboard: rec('hostDashboard', { occupancy_rate: 0.5, revenue_total: 480 }),
+    guestDashboard: rec('guestDashboard', { avg_match_score: 0.81 }),
+    top: rec('top', [{ property_id: 'prp_1', title: 'Loft', value: 5 }]),
+    geo: rec('geo', [{ region: 'San Jose', searches: null, bookings: 3, avg_price: 168.4 }]),
+    platform: rec('platform', {
+      events_by_topic: { 'booking.requested': 2 }, throughput_per_min: 0.1, errors: 0, retries: 0,
+      rejected_envelopes: 1, avg_workflow_latency_ms: { booking: 236, ai_recommendation: null },
     }),
-    top: rec('top', [{ property_id: 'prp_1', value: 5 }]),
-    geo: rec('geo', [{ city: 'San Jose', bookings: 3 }]),
-    ai: rec('ai', { requests: 2 }),
+    ai: rec('ai', { tasks: 2, votes: { keep: 1, switch: 1, abstain: 0 } }),
+    trace: rec('trace', trace),
+    storeRejected: rec('storeRejected', (items) => { rejected.push(...items); }),
     storeEvents: rec('storeEvents', (envs) => {
       let n = 0;
       for (const e of envs) if (!stored.has(e.event_id)) { stored.set(e.event_id, e); n++; }
@@ -37,18 +43,26 @@ function fakeStats({ traceEvents = [], down = false, ownProperties = ['prp_1'] }
   };
 }
 
-async function start(deps) {
+const fakeKafka = (snap = { consumer_lag: { 'analytics-cg': 0 }, dlq_messages: 2 }) => ({ snapshot: async () => snap });
+
+async function withService(opts, fn) {
+  const stats = fakeStats(opts.stats);
   const app = createApp({ name: 'analytics-test', logger });
-  app.use(buildRouter({ bus: {}, ...deps }));
+  app.use(buildRouter({ bus: {}, stats, kafka: fakeKafka(opts.kafka) }));
   app.finalize();
   const server = app.listen(0);
-  return { server, base: `http://127.0.0.1:${server.address().port}` };
+  try {
+    await fn({ base: `http://127.0.0.1:${server.address().port}`, stats });
+  } finally {
+    server.close();
+  }
 }
 
 const ADMIN = { 'X-User-Id': 'adm_1', 'X-User-Role': 'admin' };
 const HOST = { 'X-User-Id': 'hst_1', 'X-User-Role': 'host' };
 const GUEST = { 'X-User-Id': 'gst_1', 'X-User-Role': 'guest' };
 const OTHER_GUEST = { 'X-User-Id': 'gst_9', 'X-User-Role': 'guest' };
+const SERVICE = { 'X-User-Id': 'svc:booking-worker', 'X-User-Role': 'service' };
 
 async function get(base, path, headers = {}) {
   const res = await fetch(base + path, { headers });
@@ -58,119 +72,153 @@ async function post(base, path, body, headers = {}) {
   const res = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
   return { status: res.status, body: await res.json() };
 }
-
-async function withService(opts, fn) {
-  const stats = fakeStats(opts.stats);
-  const dlq = [];
-  const sendToDlq = opts.dlqDown
-    ? async () => { throw new Error('broker down'); }
-    : async (topic, env, reason) => { dlq.push({ topic, env, reason }); };
-  const { server, base } = await start({ stats, sendToDlq });
-  try {
-    await fn({ base, stats, dlq });
-  } finally {
-    server.close();
-  }
-}
+const callOf = (stats, name) => stats.calls.find((c) => c.name === name);
 
 // ---------------------------------------------------------------- helpers
-test('fillDays: every day in the window, zeros for gaps', () => {
-  const out = fillDays('2026-11-01', '2026-11-04', [{ day: '2026-11-02', count: 3 }]);
-  assert.deepStrictEqual(out, [
-    { day: '2026-11-01', count: 0 }, { day: '2026-11-02', count: 3 }, { day: '2026-11-03', count: 0 },
-  ]);
+test('windows: date-only `to` covers that whole day; default is the last 30 days; limits enforced', () => {
+  const w = rangeWindow({ from: '2026-10-01', to: '2026-10-31' });
+  assert.strictEqual(w.from, '2026-10-01T00:00:00.000Z');
+  assert.strictEqual(w.to, '2026-11-01T00:00:00.000Z');
+  assert.strictEqual(w.fromSql, '2026-10-01 00:00:00.000');
+  assert.strictEqual(w.fromDay, '2026-10-01');
+  assert.strictEqual(w.toDay, '2026-11-01');
+  const exact = rangeWindow({ from: '2026-10-27T15:00:00Z', to: '2026-10-27T16:00:00Z' });
+  assert.strictEqual(exact.minutes, 60);
+  assert.strictEqual(exact.toDay, '2026-10-28');
+  const def = rangeWindow({});
+  assert.strictEqual(Math.round((Date.parse(def.to) - Date.parse(def.from)) / 86400000), 30);
+  assert.throws(() => rangeWindow({ from: '2026-10-31', to: '2026-10-01' }), /invalid/i);
+  assert.throws(() => rangeWindow({ from: '2025-01-01', to: '2026-10-01' }), /invalid/i);
+  const g = daysWindow(30);
+  assert.strictEqual((Date.parse(g.to) - Date.parse(g.from)) / 86400000, 30);
+  assert.strictEqual(g.to.slice(11), '00:00:00.000Z');
 });
 
-test('median and funnel steps', () => {
+test('fillDays, median, conversion and producer mapping', () => {
+  assert.deepStrictEqual(
+    fillDays('2026-11-01', '2026-11-04', new Map([['2026-11-02', { count: 3 }]]), () => ({ count: 0 })),
+    [{ date: '2026-11-01', count: 0 }, { date: '2026-11-02', count: 3 }, { date: '2026-11-03', count: 0 }],
+  );
   assert.strictEqual(median([]), null);
-  assert.strictEqual(median([5, 1, 3]), 3);
   assert.strictEqual(median([4, 1, 3, 2]), 2.5);
-  const steps = toSteps([10, 4, 2, 1, 0]);
-  assert.deepStrictEqual(steps.map((s) => s.step), ['viewed', 'saved', 'requested', 'confirmed', 'completed']);
-  assert.strictEqual(steps[2].from_views, 0.2);
-  assert.strictEqual(steps[2].from_previous, 0.5);
-  assert.strictEqual(steps[0].from_previous, null);
-  assert.strictEqual(toSteps([0, 0, 0, 0, 0])[1].from_views, null); // no divide by zero
+  assert.deepStrictEqual(conversion({ viewed: 412, saved: 63, requested: 19, confirmed: 14, completed: 9 }), {
+    viewed_to_saved: 0.153, saved_to_requested: 0.302, requested_to_confirmed: 0.737, confirmed_to_completed: 0.643,
+  }); // the API doc §13.6 example numbers
+  assert.strictEqual(conversion({ viewed: 0, saved: 0, requested: 0, confirmed: 0, completed: 0 }).viewed_to_saved, null);
+  assert.strictEqual(producerOf('booking.requested'), 'booking-service');
+  assert.strictEqual(producerOf('booking.confirmed'), 'booking-worker');
+  assert.strictEqual(producerOf('debate.round.1'), 'ai-service');
 });
 
-// ---------------------------------------------------------------- windows and roles
-test('platform: admin gets data and a 30-day window ending today; others -> 403, no token -> 401', () =>
+// ---------------------------------------------------------------- top
+test('top: metric, city, limit and from/to passed through; doc shape; validation', () =>
   withService({}, async ({ base, stats }) => {
-    const { status, body } = await get(base, '/analytics/platform', ADMIN);
+    const { status, body } = await get(base, '/analytics/properties/top?metric=saves&from=2026-10-01&to=2026-10-31&city=San%20Jose&limit=3', GUEST);
     assert.strictEqual(status, 200);
-    assert.strictEqual(body.data.users.guests, 2);
-    assert.strictEqual(body.data.window.days, 30);
-    const today = new Date().toISOString().slice(0, 10);
-    const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
-    assert.strictEqual(body.data.window.until, tomorrow);
-    assert.strictEqual((Date.parse(body.data.window.until) - Date.parse(body.data.window.since)) / 86400000, 30);
-    assert.deepStrictEqual(stats.calls[0].args[0], body.data.window);
-
-    assert.strictEqual((await get(base, '/analytics/platform', HOST)).status, 403);
-    assert.strictEqual((await get(base, '/analytics/platform', GUEST)).status, 403);
-    assert.strictEqual((await get(base, '/analytics/platform')).status, 401);
-  }));
-
-test('window: ?days is validated; unknown query parameters -> 400', () =>
-  withService({}, async ({ base }) => {
-    const seven = await get(base, '/analytics/platform?days=7', ADMIN);
-    assert.strictEqual(seven.body.data.window.days, 7);
-    for (const qs of ['?days=0', '?days=366', '?days=abc', '?foo=1']) {
-      const { status, body } = await get(base, `/analytics/platform${qs}`, ADMIN);
-      assert.strictEqual(status, 400, qs);
-      assert.strictEqual(body.error.code, 'VALIDATION_ERROR');
+    assert.strictEqual(body.data.metric, 'saves');
+    assert.strictEqual(body.data.city, 'San Jose');
+    assert.strictEqual(body.data.from, '2026-10-01T00:00:00.000Z');
+    assert.deepStrictEqual(body.data.items[0], { property_id: 'prp_1', title: 'Loft', value: 5 });
+    assert.deepStrictEqual(callOf(stats, 'top').args[0], { metric: 'saves', city: 'San Jose', limit: 3 });
+    for (const qs of ['metric=rating', 'limit=51', 'from=yesterday', 'days=30', 'from=2026-10-31&to=2026-10-01']) {
+      assert.strictEqual((await get(base, `/analytics/properties/top?${qs}`, GUEST)).status, 400, qs);
     }
-  }));
-
-test('dashboards: host and guest each get their own, computed for the caller id', () =>
-  withService({}, async ({ base, stats }) => {
-    const h = await get(base, '/analytics/host/dashboard', HOST);
-    assert.strictEqual(h.status, 200);
-    assert.strictEqual(h.body.data.revenue, 480);
-    assert.strictEqual(stats.calls.find((c) => c.name === 'host').args[0], 'hst_1');
-    const g = await get(base, '/analytics/guest/dashboard', GUEST);
-    assert.strictEqual(g.status, 200);
-    assert.strictEqual(g.body.data.saved_properties, 3);
-    assert.strictEqual(stats.calls.find((c) => c.name === 'guest').args[0], 'gst_1');
-
-    assert.strictEqual((await get(base, '/analytics/host/dashboard', GUEST)).status, 403);
-    assert.strictEqual((await get(base, '/analytics/guest/dashboard', HOST)).status, 403);
-  }));
-
-test('funnel: host only; own listing filter works; someone else\'s listing -> 404', () =>
-  withService({}, async ({ base }) => {
-    const all = await get(base, '/analytics/funnel', HOST);
-    assert.strictEqual(all.status, 200);
-    assert.strictEqual(all.body.data.steps[0].count, 10);
-    assert.strictEqual(all.body.data.property_id, null);
-    const one = await get(base, '/analytics/funnel?property_id=prp_1', HOST);
-    assert.strictEqual(one.body.data.property_id, 'prp_1');
-    assert.strictEqual((await get(base, '/analytics/funnel?property_id=prp_other', HOST)).status, 404);
-    assert.strictEqual((await get(base, '/analytics/funnel', GUEST)).status, 403);
-  }));
-
-test('top: metric and limit validated; signed-in users only', () =>
-  withService({}, async ({ base, stats }) => {
-    const { status, body } = await get(base, '/analytics/properties/top?metric=views&limit=5', GUEST);
-    assert.strictEqual(status, 200);
-    assert.strictEqual(body.data.metric, 'views');
-    assert.strictEqual(stats.calls[0].args[0].limit, 5);
-    assert.strictEqual((await get(base, '/analytics/properties/top?metric=likes', GUEST)).status, 400);
-    assert.strictEqual((await get(base, '/analytics/properties/top?limit=51', GUEST)).status, 400);
     assert.strictEqual((await get(base, '/analytics/properties/top')).status, 401);
   }));
 
-test('geo and ai: admin only', () =>
+// ---------------------------------------------------------------- funnel
+test('funnel: host sees own listings as steps + conversion (API doc shape)', () =>
+  withService({}, async ({ base, stats }) => {
+    const { status, body } = await get(base, '/analytics/funnel?property_id=prp_1&from=2026-10-01&to=2026-10-31', HOST);
+    assert.strictEqual(status, 200);
+    assert.deepStrictEqual(body.data.steps, { viewed: 10, saved: 4, requested: 2, confirmed: 1, completed: 1 });
+    assert.strictEqual(body.data.conversion.viewed_to_saved, 0.4);
+    assert.strictEqual(body.data.property_id, 'prp_1');
+    assert.deepStrictEqual(callOf(stats, 'funnel').args[0], { hostId: 'hst_1', propertyId: 'prp_1' });
+  }));
+
+test('funnel: another host\'s listing or host_id -> 403, unknown listing -> 404, guest -> 403; admin may pick any', () =>
+  withService({}, async ({ base, stats }) => {
+    assert.strictEqual((await get(base, '/analytics/funnel?property_id=prp_2', HOST)).status, 403);
+    assert.strictEqual((await get(base, '/analytics/funnel?host_id=hst_2', HOST)).status, 403);
+    assert.strictEqual((await get(base, '/analytics/funnel?property_id=prp_nope', HOST)).status, 404);
+    assert.strictEqual((await get(base, '/analytics/funnel', GUEST)).status, 403);
+    assert.strictEqual((await get(base, '/analytics/funnel?host_id=hst_2', ADMIN)).status, 200);
+    assert.deepStrictEqual(stats.calls.filter((c) => c.name === 'funnel').at(-1).args[0], { hostId: 'hst_2', propertyId: undefined });
+  }));
+
+// ---------------------------------------------------------------- dashboards
+test('host dashboard: self by default; another host -> 403 (API doc example); admin needs host_id', () =>
+  withService({}, async ({ base, stats }) => {
+    const own = await get(base, '/analytics/host/dashboard?from=2026-10-01&to=2026-10-31', HOST);
+    assert.strictEqual(own.status, 200);
+    assert.strictEqual(own.body.data.host_id, 'hst_1');
+    assert.strictEqual(own.body.data.revenue_total, 480);
+    assert.strictEqual(callOf(stats, 'hostDashboard').args[0], 'hst_1');
+    const other = await get(base, '/analytics/host/dashboard?host_id=hst_2', HOST);
+    assert.strictEqual(other.status, 403);
+    assert.strictEqual(other.body.error.code, 'FORBIDDEN');
+    assert.strictEqual((await get(base, '/analytics/host/dashboard', ADMIN)).status, 400);
+    assert.strictEqual((await get(base, '/analytics/host/dashboard?host_id=hst_2', ADMIN)).status, 200);
+    assert.strictEqual((await get(base, '/analytics/host/dashboard', GUEST)).status, 403);
+  }));
+
+test('guest dashboard: self, days default 30; another guest -> 403; days validated', () =>
+  withService({}, async ({ base, stats }) => {
+    const { status, body } = await get(base, '/analytics/guest/dashboard', GUEST);
+    assert.strictEqual(status, 200);
+    assert.strictEqual(body.data.guest_id, 'gst_1');
+    assert.strictEqual(body.data.days, 30);
+    assert.strictEqual(body.data.avg_match_score, 0.81);
+    const [guestId, w] = callOf(stats, 'guestDashboard').args;
+    assert.strictEqual(guestId, 'gst_1');
+    assert.strictEqual((Date.parse(w.to) - Date.parse(w.from)) / 86400000, 30);
+    assert.strictEqual((await get(base, '/analytics/guest/dashboard?guest_id=gst_9', GUEST)).status, 403);
+    assert.strictEqual((await get(base, '/analytics/guest/dashboard?days=0', GUEST)).status, 400);
+    assert.strictEqual((await get(base, '/analytics/guest/dashboard', HOST)).status, 403);
+    assert.strictEqual((await get(base, '/analytics/guest/dashboard?guest_id=gst_1&days=7', ADMIN)).body.data.days, 7);
+  }));
+
+// ---------------------------------------------------------------- platform / geo / ai
+test('platform: admin only; Kafka lag and DLQ count merged into the doc shape', () =>
   withService({}, async ({ base }) => {
-    assert.strictEqual((await get(base, '/analytics/geo', ADMIN)).body.data.items[0].city, 'San Jose');
-    assert.strictEqual((await get(base, '/analytics/ai', ADMIN)).body.data.requests, 2);
+    const { status, body } = await get(base, '/analytics/platform?from=2026-10-27T15:00:00Z&to=2026-10-27T16:00:00Z', ADMIN);
+    assert.strictEqual(status, 200);
+    for (const k of ['events_by_topic', 'consumer_lag', 'throughput_per_min', 'errors', 'retries', 'dlq_messages', 'rejected_envelopes', 'avg_workflow_latency_ms']) {
+      assert.ok(k in body.data, k);
+    }
+    assert.strictEqual(body.data.dlq_messages, 2);
+    assert.deepStrictEqual(body.data.consumer_lag, { 'analytics-cg': 0 });
+    assert.strictEqual('kafka_error' in body.data, false);
+    assert.strictEqual((await get(base, '/analytics/platform', HOST)).status, 403);
+    assert.strictEqual((await get(base, '/analytics/platform')).status, 401);
+  }));
+
+test('platform: Kafka unreachable still answers, with nulls and the reason', () =>
+  withService({ kafka: { consumer_lag: null, dlq_messages: null, kafka_error: 'Kafka admin timed out' } }, async ({ base }) => {
+    const { status, body } = await get(base, '/analytics/platform', ADMIN);
+    assert.strictEqual(status, 200);
+    assert.strictEqual(body.data.consumer_lag, null);
+    assert.strictEqual(body.data.kafka_error, 'Kafka admin timed out');
+  }));
+
+test('geo and ai: admin only, parameters validated', () =>
+  withService({}, async ({ base, stats }) => {
+    const g = await get(base, '/analytics/geo?group_by=state', ADMIN);
+    assert.strictEqual(g.body.data.group_by, 'state');
+    assert.strictEqual(g.body.data.items[0].region, 'San Jose');
+    assert.deepStrictEqual(callOf(stats, 'geo').args[0], { groupBy: 'state' });
+    assert.strictEqual((await get(base, '/analytics/geo?group_by=zip', ADMIN)).status, 400);
+    const a = await get(base, '/analytics/ai?version=matcher-v2', ADMIN);
+    assert.strictEqual(a.body.data.tasks, 2);
+    assert.deepStrictEqual(callOf(stats, 'ai').args[0], { version: 'matcher-v2' });
     assert.strictEqual((await get(base, '/analytics/geo', HOST)).status, 403);
     assert.strictEqual((await get(base, '/analytics/ai', GUEST)).status, 403);
   }));
 
 test('database down -> 503 DEPENDENCY_UNAVAILABLE, retryable', () =>
   withService({ stats: { down: true } }, async ({ base }) => {
-    const { status, body } = await get(base, '/analytics/platform', ADMIN);
+    const { status, body } = await get(base, '/analytics/host/dashboard', HOST);
     assert.strictEqual(status, 503);
     assert.strictEqual(body.error.code, 'DEPENDENCY_UNAVAILABLE');
     assert.strictEqual(body.error.retryable, true);
@@ -178,78 +226,80 @@ test('database down -> 503 DEPENDENCY_UNAVAILABLE, retryable', () =>
 
 // ---------------------------------------------------------------- traces
 const TRACE = '7c1e4b2a-0d3f-4f8e-9a11-2b6c5d8e9f01';
-const journey = [
-  { event_id: 'e1', event_type: 'booking.requested', timestamp: '2026-11-20T10:00:00.000Z', actor_id: 'gst_1', actor_type: 'guest', entity: { entity_type: 'reservation', entity_id: 'res_1' }, payload: { guest_id: 'gst_1', host_id: 'hst_1' }, kafka: { topic: 'booking.requested', partition: 0, offset: '4' } },
-  { event_id: 'e2', event_type: 'booking.confirmed', timestamp: '2026-11-20T10:00:00.250Z', actor_id: 'booking-worker', actor_type: 'service', entity: { entity_type: 'reservation', entity_id: 'res_1' }, payload: { guest_id: 'gst_1', host_id: 'hst_1' } },
-];
+const journey = {
+  steps: [
+    { service: 'booking-service', event_type: 'booking.requested', timestamp: '2026-10-27T15:10:01.876Z', latency_ms: 21, status: 'ok', error: null },
+    { service: 'booking-worker', event_type: 'booking.requested', timestamp: '2026-10-27T15:10:02.114Z', latency_ms: 38, status: 'ok', error: null },
+  ],
+  participants: new Set(['gst_1', 'hst_1']),
+};
 
-test('trace: admin sees the whole journey in order with timings', () =>
-  withService({ stats: { traceEvents: journey } }, async ({ base }) => {
+test('trace: doc shape with total_latency_ms; participants and admin see it; others get 404 like unknown', () =>
+  withService({ stats: { trace: journey } }, async ({ base }) => {
     const { status, body } = await get(base, `/traces/${TRACE}`, ADMIN);
     assert.strictEqual(status, 200);
-    assert.strictEqual(body.data.event_count, 2);
-    assert.strictEqual(body.data.duration_ms, 250);
-    assert.deepStrictEqual(body.data.topics, ['booking.requested', 'booking.confirmed']);
-    assert.strictEqual(body.data.events[1].since_start_ms, 250);
-    assert.strictEqual(body.data.events[0].kafka.offset, '4');
-  }));
-
-test('trace: the guest and host in it can see it; anyone else gets 404 like an unknown trace', () =>
-  withService({ stats: { traceEvents: journey } }, async ({ base }) => {
+    assert.strictEqual(body.data.total_latency_ms, 238);
+    assert.strictEqual(body.data.steps[1].service, 'booking-worker');
     assert.strictEqual((await get(base, `/traces/${TRACE}`, GUEST)).status, 200);
     assert.strictEqual((await get(base, `/traces/${TRACE}`, HOST)).status, 200);
     const other = await get(base, `/traces/${TRACE}`, OTHER_GUEST);
     assert.strictEqual(other.status, 404);
     assert.strictEqual(other.body.error.message, 'Trace not found.');
+  }));
+
+test('trace: unknown -> 404, not a UUID -> 400, no token -> 401', () =>
+  withService({}, async ({ base }) => {
+    assert.strictEqual((await get(base, `/traces/${TRACE}`, ADMIN)).status, 404);
+    assert.strictEqual((await get(base, '/traces/not-a-uuid', ADMIN)).status, 400);
     assert.strictEqual((await get(base, `/traces/${TRACE}`)).status, 401);
   }));
 
-test('trace: unknown -> 404, not a UUID -> 400', () =>
-  withService({}, async ({ base }) => {
-    assert.strictEqual((await get(base, `/traces/${TRACE}`, ADMIN)).status, 404);
-    const bad = await get(base, '/traces/not-a-uuid', ADMIN);
-    assert.strictEqual(bad.status, 400);
-    assert.strictEqual(bad.body.error.details[0].field, 'trace_id');
-  }));
-
 // ---------------------------------------------------------------- ingest
-const envelope = () => createEnvelope({
-  eventType: 'property.viewed', traceId: randomUUID(), actorId: 'gst_1', actorType: 'guest',
-  entityType: 'property', entityId: 'prp_1', payload: { property_id: 'prp_1' },
+const envelope = (actorId = 'gst_1') => createEnvelope({
+  eventType: 'property.viewed', traceId: randomUUID(), actorId, actorType: 'guest',
+  entityType: 'property', entityId: 'prp_1', payload: { property_id: 'prp_1', viewer_id: actorId, source: 'search' },
 });
 
-test('ingest: valid envelopes stored once; invalid -> <event_type>.dlq with the reason; unknown type rejected', () =>
-  withService({}, async ({ base, stats, dlq }) => {
-    const good = envelope();
-    const noTrace = { ...envelope() };
-    delete noTrace.trace_id;
-    const unknown = { ...envelope(), event_type: 'cats.adopted' };
-
-    const { status, body } = await post(base, '/events/ingest', { events: [good, good, noTrace, unknown] }, ADMIN);
-    assert.strictEqual(status, 200);
-    assert.strictEqual(body.data.accepted, 2);
-    assert.strictEqual(body.data.stored, 1);
-    assert.strictEqual(body.data.duplicates, 1);
-    assert.strictEqual(body.data.rejected.length, 2);
-    assert.strictEqual(body.data.rejected[0].index, 2);
-    assert.strictEqual(body.data.rejected[0].dlq, 'property.viewed.dlq');
-    assert.match(body.data.rejected[0].reason, /trace_id/);
-    assert.strictEqual(body.data.rejected[1].dlq, null);
-    assert.strictEqual(dlq.length, 1);
-    assert.strictEqual(dlq[0].topic, 'property.viewed');
+test('ingest: API doc example (one valid, one malformed) -> 202 {accepted:1, rejected:1, errors}; rejected kept', () =>
+  withService({}, async ({ base, stats }) => {
+    const { status, body } = await post(base, '/events/ingest', { events: [envelope('svc'), { event_type: 'property.viewed', payload: {} }] }, SERVICE);
+    assert.strictEqual(status, 202);
+    assert.strictEqual(body.data.accepted, 1);
+    assert.strictEqual(body.data.rejected, 1);
+    assert.strictEqual(body.data.errors[0].index, 1);
+    assert.match(body.data.errors[0].issue, /event_id/);
     assert.strictEqual(stats.stored.size, 1);
-
-    const again = await post(base, '/events/ingest', { events: [good] }, ADMIN);
-    assert.strictEqual(again.body.data.stored, 0);
+    assert.strictEqual(stats.rejected.length, 1);
   }));
 
-test('ingest: admin only; body validated; DLQ down still answers', () =>
-  withService({ dlqDown: true }, async ({ base }) => {
-    assert.strictEqual((await post(base, '/events/ingest', { events: [envelope()] }, HOST)).status, 403);
-    assert.strictEqual((await post(base, '/events/ingest', { events: [] }, ADMIN)).status, 400);
-    assert.strictEqual((await post(base, '/events/ingest', { nope: 1 }, ADMIN)).status, 400);
-    const bad = { ...envelope(), timestamp: 'yesterday' };
-    const { status, body } = await post(base, '/events/ingest', { events: [bad] }, ADMIN);
-    assert.strictEqual(status, 200);
-    assert.strictEqual(body.data.rejected[0].dlq, null);
+test('ingest: a single envelope works; duplicates stored once; unknown topic rejected', () =>
+  withService({}, async ({ base, stats }) => {
+    const env = envelope();
+    const one = await post(base, '/events/ingest', env, GUEST);
+    assert.strictEqual(one.status, 202);
+    assert.strictEqual(one.body.data.accepted, 1);
+    const again = await post(base, '/events/ingest', { events: [env] }, GUEST);
+    assert.strictEqual(again.body.data.duplicates, 1);
+    assert.strictEqual(stats.stored.size, 1);
+    const unknown = await post(base, '/events/ingest', { ...envelope(), event_type: 'cats.adopted' }, GUEST);
+    assert.strictEqual(unknown.body.data.rejected, 1);
+  }));
+
+test('ingest: a guest cannot report someone else\'s actions; services can', () =>
+  withService({}, async ({ base }) => {
+    const spoof = await post(base, '/events/ingest', envelope('gst_9'), GUEST);
+    assert.strictEqual(spoof.body.data.rejected, 1);
+    assert.match(spoof.body.data.errors[0].issue, /actor_id/);
+    const svc = await post(base, '/events/ingest', envelope('gst_9'), SERVICE);
+    assert.strictEqual(svc.body.data.accepted, 1);
+  }));
+
+test('ingest: body validated; signed-in callers only', () =>
+  withService({}, async ({ base }) => {
+    assert.strictEqual((await post(base, '/events/ingest', { events: [] }, SERVICE)).status, 400);
+    assert.strictEqual((await post(base, '/events/ingest', { events: 'nope' }, SERVICE)).status, 400);
+    assert.strictEqual((await post(base, '/events/ingest', [envelope()], SERVICE)).status, 400);
+    assert.strictEqual((await post(base, '/events/ingest', {}, SERVICE)).status, 400); // neither an envelope nor { events }
+    assert.strictEqual((await post(base, '/events/ingest', { events: Array(501).fill({}) }, SERVICE)).status, 400);
+    assert.strictEqual((await post(base, '/events/ingest', envelope())).status, 401);
   }));

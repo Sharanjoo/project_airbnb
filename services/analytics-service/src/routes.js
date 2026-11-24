@@ -1,50 +1,87 @@
-// Analytics and Logging Service (API doc §8). Owner: Slice 4.
+// Analytics and Logging Service (API doc §8, examples in §13.6). Owner: Slice 4.
 // Dashboards must be computed from MySQL + Mongo events/traces, never static samples.
 //
-// Every GET takes ?days=N (1..365, default 30): the window is the last N days
-// including today (UTC). Answers are { data, trace_id } with `window` echoed back.
-//
-//   POST /events/ingest              admin   store envelopes; invalid ones -> <event_type>.dlq
-//   GET  /analytics/properties/top   signed in  ?metric=bookings|revenue|views|rating&limit=10
-//   GET  /analytics/funnel           host    viewed -> saved -> requested -> confirmed -> completed (?property_id=)
-//   GET  /analytics/geo              admin   listings, bookings, revenue per city
-//   GET  /analytics/host/dashboard   host    occupancy, revenue, cancellations, rating trend, response time
-//   GET  /analytics/guest/dashboard  guest   bookings over time, status summary, saved, reviews, AI use
-//   GET  /analytics/platform         admin   users, listings, bookings, revenue, events by type
-//   GET  /analytics/ai               admin   AI requests, results, debate rounds, request->result latency
+//   POST /events/ingest              services, clients  one envelope or {events:[…]} (max 500) -> 202 {accepted, rejected, errors}
+//   GET  /analytics/properties/top   signed in   metric=views|bookings|revenue|saves, from, to, city, limit (default 10)
+//   GET  /analytics/funnel           host (own), admin   host_id or property_id, from, to
+//   GET  /analytics/geo              admin       from, to, group_by=city|state
+//   GET  /analytics/host/dashboard   host (self), admin  host_id, from, to
+//   GET  /analytics/guest/dashboard  guest (self), admin guest_id, days (default 30)
+//   GET  /analytics/platform         admin       from, to
+//   GET  /analytics/ai               admin       from, to, version
 //   GET  /traces/{trace_id}          admin, or a user who took part in that journey
+//
+// from / to: a date (2026-10-01, whole day; `to` is inclusive) or an ISO timestamp
+// (2026-10-27T15:00:00Z, exact). Default: the last 30 days up to now. Max 366 days.
 const express = require('express');
 const Joi = require('joi');
 const {
-  asyncHandler, validateBody, requireRole, ok, Errors, AppError, validateEnvelope, dlqTopic, TOPICS, logger,
+  asyncHandler, requireRole, ok, Errors, AppError, validateEnvelope, TOPICS, logger,
 } = require('@airbnb/common');
 const defaultStats = require('./models/stats');
+const defaultKafka = require('./models/kafkaStats');
 
 const KNOWN_TOPICS = new Set(Object.values(TOPICS));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const day = (t) => new Date(t).toISOString().slice(0, 10);
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86400000;
+const MAX_INGEST = 500;
+const isPrivileged = (user) => user.role === 'admin' || user.role === 'service';
 
-const windowFields = { days: Joi.number().integer().min(1).max(365).default(30) };
+const range = { from: Joi.string().isoDate(), to: Joi.string().isoDate() };
+const id = Joi.string().max(40);
 const querySchemas = {
-  window: Joi.object(windowFields),
+  range: Joi.object(range),
   top: Joi.object({
-    ...windowFields,
-    metric: Joi.string().valid('bookings', 'revenue', 'views', 'rating').default('bookings'),
+    ...range,
+    metric: Joi.string().valid('views', 'bookings', 'revenue', 'saves').default('bookings'),
+    city: Joi.string().max(80),
     limit: Joi.number().integer().min(1).max(50).default(10),
   }),
-  funnel: Joi.object({ ...windowFields, property_id: Joi.string().max(40) }),
+  funnel: Joi.object({ ...range, host_id: id, property_id: id }),
+  geo: Joi.object({ ...range, group_by: Joi.string().valid('city', 'state').default('city') }),
+  host: Joi.object({ ...range, host_id: id }),
+  guest: Joi.object({ guest_id: id, days: Joi.number().integer().min(1).max(365).default(30) }),
+  ai: Joi.object({ ...range, version: Joi.string().max(60) }),
 };
-const ingestSchema = Joi.object({ events: Joi.array().items(Joi.object().unknown(true)).min(1).max(500).required() });
 
-/** Validate req.query (strings are converted to numbers); unknown parameters are rejected like unknown body fields. */
+const sqlTime = (ms) => new Date(ms).toISOString().replace('T', ' ').replace('Z', '');
+const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/** Build the window every query uses (see models/stats.js). */
+function makeWindow(fromMs, toMs) {
+  const toDayMs = Math.ceil(toMs / DAY_MS) * DAY_MS; // DATE columns: whole days covering the window
+  return {
+    from: new Date(fromMs).toISOString(),
+    to: new Date(toMs).toISOString(),
+    fromSql: sqlTime(fromMs),
+    toSql: sqlTime(toMs),
+    fromDay: dayOf(Math.floor(fromMs / DAY_MS) * DAY_MS),
+    toDay: dayOf(toDayMs),
+    minutes: (toMs - fromMs) / 60000,
+  };
+}
+
+function rangeWindow({ from, to }) {
+  const toMs = to ? Date.parse(to) + (DATE_ONLY.test(to) ? DAY_MS : 0) : Date.now();
+  const fromMs = from ? Date.parse(from) : toMs - 30 * DAY_MS;
+  if (fromMs >= toMs) throw Errors.validation([{ field: 'from', issue: 'must be before to' }]);
+  if (toMs - fromMs > 366 * DAY_MS) throw Errors.validation([{ field: 'from', issue: 'range is at most 366 days' }]);
+  return makeWindow(fromMs, toMs);
+}
+
+/** The last `days` whole days, today included (guest dashboard). */
+function daysWindow(days) {
+  const tomorrow = Math.floor(Date.now() / DAY_MS) * DAY_MS + DAY_MS;
+  return makeWindow(tomorrow - days * DAY_MS, tomorrow);
+}
+
+/** Validate req.query; unknown parameters are rejected like unknown body fields. */
 function validateQuery(schema) {
   return (req, res, next) => {
     const { error, value } = schema.validate(req.query, { abortEarly: false, allowUnknown: false, convert: true });
     if (error) return next(Errors.validation(error.details.map((d) => ({ field: d.path.join('.'), issue: d.message }))));
     req.q = value;
-    // the window ends at the end of today (UTC) and covers `days` whole days
-    const until = Date.parse(`${day(Date.now())}T00:00:00Z`) + 86400000;
-    req.q.window = { days: value.days, since: day(until - value.days * 86400000), until: day(until) };
     next();
   };
 }
@@ -60,125 +97,136 @@ async function db(fn) {
   }
 }
 
-/** Did this user take part in the journey? (acted in it, or it is about their booking) */
-function tookPart(user, evs) {
-  return evs.some((e) => e.actor_id === user.id
-    || (e.payload && (e.payload.guest_id === user.id || e.payload.host_id === user.id || e.payload.user_id === user.id)));
-}
+const echo = (w) => ({ from: w.from, to: w.to });
 
-function defaultDlq(bus) {
-  return async (topic, env, reason) => {
-    const producer = await bus.connectProducer();
-    await producer.send({
-      topic: dlqTopic(topic),
-      messages: [{
-        key: (env.entity && env.entity.entity_id) || env.trace_id || null,
-        value: JSON.stringify(env),
-        headers: { failure_reason: reason.slice(0, 1000), failed_at: new Date().toISOString(), consumer_group: 'analytics-ingest', source_topic: topic },
-      }],
-    });
-  };
-}
-
-function buildRouter({ bus, stats = defaultStats, sendToDlq = defaultDlq(bus) }) {
+function buildRouter({ bus, stats = defaultStats, kafka = defaultKafka }) { // eslint-disable-line no-unused-vars
   const r = express.Router();
-  const window = validateQuery(querySchemas.window);
 
-  r.post('/events/ingest', requireRole('admin'), validateBody(ingestSchema), asyncHandler(async (req, res) => {
-    const valid = [];
-    const rejected = [];
-    for (const [index, env] of req.body.events.entries()) {
-      const known = typeof env.event_type === 'string' && KNOWN_TOPICS.has(env.event_type);
-      const check = known ? validateEnvelope(env, env.event_type) : { valid: false, errors: ['/event_type is not a known topic'] };
-      if (check.valid) {
-        valid.push(env);
-        continue;
-      }
-      const reason = check.errors.join('; ');
-      let dlq = null;
-      if (known) {
-        try {
-          await sendToDlq(env.event_type, env, reason);
-          dlq = dlqTopic(env.event_type);
-        } catch (err) {
-          logger.error('ingest DLQ write failed', { trace_id: req.traceId, error: err.message });
-        }
-      }
-      rejected.push({ index, event_id: env.event_id ?? null, reason, dlq });
+  // ------------------------------------------------------------ ingest
+  r.post('/events/ingest', requireRole('guest', 'host', 'service'), asyncHandler(async (req, res) => {
+    const body = req.body;
+    // one envelope (has event_type) or { events: [...] }; anything else is not an ingest request at all
+    if (!body || typeof body !== 'object' || Array.isArray(body) || !('events' in body || 'event_type' in body)) {
+      throw Errors.validation([{ field: 'body', issue: 'must be one envelope or { events: [...] }' }]);
     }
+    const list = 'events' in body ? body.events : [body];
+    if (!Array.isArray(list) || list.length < 1 || list.length > MAX_INGEST) {
+      throw Errors.validation([{ field: 'events', issue: `must be an array of 1 to ${MAX_INGEST} envelopes` }]);
+    }
+    const valid = [];
+    const errors = [];
+    const rejected = [];
+    list.forEach((env, index) => {
+      let issue = null;
+      if (!env || typeof env !== 'object' || Array.isArray(env)) issue = '/ must be an object';
+      else if (!KNOWN_TOPICS.has(env.event_type)) issue = '/event_type is not a known topic';
+      else {
+        const check = validateEnvelope(env, env.event_type);
+        if (!check.valid) issue = check.errors.join('; ');
+        // a guest or host may only report their own actions; services and admins may report any
+        else if (!isPrivileged(req.user) && env.actor_id !== req.user.id) issue = '/actor_id must be the caller';
+      }
+      if (issue) {
+        errors.push({ index, issue });
+        rejected.push({ index, issue, envelope: env, caller: req.user.id, trace_id: req.traceId });
+      } else valid.push(env);
+    });
+    // Rejected envelopes are kept for the platform's rejected-envelope count.
+    // TODO(shared): also send them to events.dlq once the team adds that topic.
+    await db(() => stats.storeRejected(rejected));
     const stored = await db(() => stats.storeEvents(valid));
-    return ok(res, { accepted: valid.length, stored, duplicates: valid.length - stored, rejected });
+    return ok(res, { accepted: valid.length, rejected: rejected.length, errors, duplicates: valid.length - stored }, 202);
   }));
 
+  // ------------------------------------------------------------ top
   r.get('/analytics/properties/top', requireRole('guest', 'host'), validateQuery(querySchemas.top), asyncHandler(async (req, res) => {
-    const { metric, limit, window: w } = req.q;
-    const items = await db(() => stats.top({ metric, limit, ...w }));
-    return ok(res, { metric, window: w, items });
+    const { metric, city, limit } = req.q;
+    const w = rangeWindow(req.q);
+    const items = await db(() => stats.top({ metric, city, limit }, w));
+    return ok(res, { metric, ...echo(w), city: city || null, items });
   }));
 
+  // ------------------------------------------------------------ funnel
   r.get('/analytics/funnel', requireRole('host'), validateQuery(querySchemas.funnel), asyncHandler(async (req, res) => {
-    const { property_id, window: w } = req.q;
-    const result = await db(() => stats.funnel(req.user.id, { ...w, propertyId: property_id }));
-    // a listing that is not yours looks like one that does not exist
-    if (property_id && !result.property_ids.length) throw Errors.notFound('Property');
-    return ok(res, { window: w, property_id: property_id || null, steps: result.steps });
+    const w = rangeWindow(req.q);
+    let { host_id: hostId, property_id: propertyId } = req.q;
+    if (propertyId) {
+      const owner = await db(() => stats.propertyOwner(propertyId));
+      if (!owner) throw Errors.notFound('Property');
+      if (req.user.role !== 'admin' && owner !== req.user.id) throw Errors.forbidden();
+      if (hostId && hostId !== owner) throw Errors.validation([{ field: 'host_id', issue: 'does not own property_id' }]);
+    }
+    if (req.user.role !== 'admin') {
+      if (hostId && hostId !== req.user.id) throw Errors.forbidden();
+      hostId = req.user.id;
+    }
+    const result = await db(() => stats.funnel({ hostId, propertyId }, w));
+    return ok(res, { host_id: hostId || null, property_id: propertyId || null, ...echo(w), ...result });
   }));
 
-  r.get('/analytics/geo', requireRole('admin'), window, asyncHandler(async (req, res) => {
-    const items = await db(() => stats.geo(req.q.window));
-    return ok(res, { window: req.q.window, items });
+  // ------------------------------------------------------------ geo
+  r.get('/analytics/geo', requireRole('admin'), validateQuery(querySchemas.geo), asyncHandler(async (req, res) => {
+    const w = rangeWindow(req.q);
+    const items = await db(() => stats.geo({ groupBy: req.q.group_by }, w));
+    return ok(res, { group_by: req.q.group_by, ...echo(w), items });
   }));
 
-  r.get('/analytics/host/dashboard', requireRole('host'), window, asyncHandler(async (req, res) => {
-    const data = await db(() => stats.host(req.user.id, req.q.window));
-    return ok(res, { window: req.q.window, ...data });
+  // ------------------------------------------------------------ host / guest dashboards
+  r.get('/analytics/host/dashboard', requireRole('host'), validateQuery(querySchemas.host), asyncHandler(async (req, res) => {
+    const w = rangeWindow(req.q);
+    const hostId = req.q.host_id || (req.user.role === 'admin' ? null : req.user.id);
+    if (!hostId) throw Errors.validation([{ field: 'host_id', issue: 'is required for admins' }]);
+    if (req.user.role !== 'admin' && hostId !== req.user.id) throw Errors.forbidden();
+    const data = await db(() => stats.hostDashboard(hostId, w));
+    return ok(res, { host_id: hostId, ...echo(w), ...data });
   }));
 
-  r.get('/analytics/guest/dashboard', requireRole('guest'), window, asyncHandler(async (req, res) => {
-    const data = await db(() => stats.guest(req.user.id, req.q.window));
-    return ok(res, { window: req.q.window, ...data });
+  r.get('/analytics/guest/dashboard', requireRole('guest'), validateQuery(querySchemas.guest), asyncHandler(async (req, res) => {
+    const guestId = req.q.guest_id || (req.user.role === 'admin' ? null : req.user.id);
+    if (!guestId) throw Errors.validation([{ field: 'guest_id', issue: 'is required for admins' }]);
+    if (req.user.role !== 'admin' && guestId !== req.user.id) throw Errors.forbidden();
+    const w = daysWindow(req.q.days);
+    const data = await db(() => stats.guestDashboard(guestId, w));
+    return ok(res, { guest_id: guestId, days: req.q.days, ...data });
   }));
 
-  r.get('/analytics/platform', requireRole('admin'), window, asyncHandler(async (req, res) => {
-    const data = await db(() => stats.platform(req.q.window));
-    return ok(res, { window: req.q.window, ...data });
+  // ------------------------------------------------------------ platform / ai
+  r.get('/analytics/platform', requireRole('admin'), validateQuery(querySchemas.range), asyncHandler(async (req, res) => {
+    const w = rangeWindow(req.q);
+    const [data, k] = await Promise.all([db(() => stats.platform(w)), kafka.snapshot()]);
+    return ok(res, {
+      ...echo(w),
+      events_by_topic: data.events_by_topic,
+      consumer_lag: k.consumer_lag,
+      throughput_per_min: data.throughput_per_min,
+      errors: data.errors,
+      retries: data.retries,
+      dlq_messages: k.dlq_messages,
+      rejected_envelopes: data.rejected_envelopes,
+      avg_workflow_latency_ms: data.avg_workflow_latency_ms,
+      ...(k.kafka_error ? { kafka_error: k.kafka_error } : {}),
+    });
   }));
 
-  r.get('/analytics/ai', requireRole('admin'), window, asyncHandler(async (req, res) => {
-    const data = await db(() => stats.ai(req.q.window));
-    return ok(res, { window: req.q.window, ...data });
+  r.get('/analytics/ai', requireRole('admin'), validateQuery(querySchemas.ai), asyncHandler(async (req, res) => {
+    const w = rangeWindow(req.q);
+    const data = await db(() => stats.ai({ version: req.q.version }, w));
+    return ok(res, { ...echo(w), ...data });
   }));
 
+  // ------------------------------------------------------------ traces
   r.get('/traces/:traceId', requireRole('guest', 'host'), asyncHandler(async (req, res) => {
     const { traceId } = req.params;
     if (!UUID.test(traceId)) throw Errors.validation([{ field: 'trace_id', issue: 'must be a UUID' }]);
-    const evs = await db(() => stats.trace(traceId));
+    const { steps, participants } = await db(() => stats.trace(traceId));
     // Someone else's journey answers exactly like an unknown one.
-    if (!evs.length || (req.user.role !== 'admin' && !tookPart(req.user, evs))) throw Errors.notFound('Trace');
-    const first = Date.parse(evs[0].timestamp);
-    const last = Date.parse(evs[evs.length - 1].timestamp);
-    return ok(res, {
-      trace_id: traceId,
-      started_at: evs[0].timestamp,
-      ended_at: evs[evs.length - 1].timestamp,
-      duration_ms: last - first,
-      event_count: evs.length,
-      topics: [...new Set(evs.map((e) => e.event_type))],
-      events: evs.map((e) => ({
-        event_id: e.event_id,
-        event_type: e.event_type,
-        timestamp: e.timestamp,
-        since_start_ms: Date.parse(e.timestamp) - first,
-        actor_id: e.actor_id,
-        actor_type: e.actor_type,
-        entity: e.entity,
-        payload: e.payload,
-        kafka: e.kafka || null,
-      })),
-    });
+    if (!steps.length || (req.user.role !== 'admin' && !participants.has(req.user.id))) throw Errors.notFound('Trace');
+    const first = Date.parse(steps[0].timestamp);
+    const last = Date.parse(steps[steps.length - 1].timestamp);
+    return ok(res, { trace_id: traceId, total_latency_ms: last - first, steps });
   }));
 
   return r;
 }
 
-module.exports = { buildRouter, tookPart };
+module.exports = { buildRouter, rangeWindow, daysWindow };

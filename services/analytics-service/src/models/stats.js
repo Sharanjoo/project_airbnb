@@ -1,26 +1,33 @@
-// Analytics queries. Everything is computed live from MySQL (users, listings,
-// reservations) and the MongoDB `events` collection that analytics-worker fills
-// from every Kafka topic. No stored samples.
+// Analytics queries (API doc §8 and the §13.6 examples). Everything is computed
+// live from MySQL (users, listings, reservations), the MongoDB `events`
+// collection that analytics-worker fills from every Kafka topic (one document
+// per event, deduped on event_id), the `traces` collection (one document per
+// workflow step, written by the services) and Mongo messages/reviews/ai data.
+// No stored samples.
 //
-// Windows: `since` / `until` are YYYY-MM-DD (UTC). MySQL compares DATE/DATETIME
-// columns against them; Mongo compares the envelope's ISO `timestamp` string,
-// which sorts correctly as text.
+// Every function takes a window `w` built by the routes:
+//   w.from / w.to        ISO timestamps (to exclusive), compared with event timestamps
+//   w.fromSql / w.toSql  the same instants as MySQL DATETIME strings
+//   w.fromDay / w.toDay  whole days (YYYY-MM-DD, toDay exclusive) for DATE columns
+//   w.minutes            length of the window in minutes
 const { getMysql, getMongo } = require('@airbnb/common');
 
 const BOOKED = ['CONFIRMED', 'COMPLETED'];
+const STATUSES = ['REQUESTED', 'CONFIRMED', 'DECLINED', 'REJECTED', 'CANCELLED', 'EXPIRED', 'COMPLETED'];
 const num = (v) => (v === null || v === undefined ? 0 : Number(v));
-const money = (v) => Math.round(num(v) * 100) / 100;
-const iso = (day) => `${day}T00:00:00.000Z`;
+const round = (v, places) => (v === null || v === undefined || Number.isNaN(v) ? null : Math.round(v * 10 ** places) / 10 ** places);
+const money = (v) => round(num(v), 2);
+const ratio = (a, b) => (b ? round(a / b, 3) : null);
 const q = async (sql, params) => (await getMysql().query(sql, params))[0];
-const events = async () => (await getMongo()).collection('events');
+const mongo = async (name) => (await getMongo()).collection(name);
+const inWindow = (w) => ({ $gte: w.from, $lt: w.to });
 
-/** Every day in [since, until) with 0 where there is no row, so charts have no gaps. */
-function fillDays(since, until, rows, key = 'day', value = 'count') {
-  const byDay = new Map(rows.map((r) => [String(r[key]).slice(0, 10), num(r[value])]));
+/** Every day in [fromDay, toDay) with `blank()` where there is no row, so charts have no gaps. */
+function fillDays(fromDay, toDay, byDay, blank) {
   const out = [];
-  for (let t = Date.parse(iso(since)); t < Date.parse(iso(until)); t += 86400000) {
-    const d = new Date(t).toISOString().slice(0, 10);
-    out.push({ day: d, count: byDay.get(d) || 0 });
+  for (let t = Date.parse(`${fromDay}T00:00:00Z`); t < Date.parse(`${toDay}T00:00:00Z`); t += 86400000) {
+    const date = new Date(t).toISOString().slice(0, 10);
+    out.push({ date, ...(byDay.get(date) || blank()) });
   }
   return out;
 }
@@ -32,255 +39,391 @@ function median(values) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-const statusMap = (rows) => Object.fromEntries(rows.map((r) => [r.status, num(r.n)]));
+const average = (values) => (values.length ? values.reduce((s, v) => s + v, 0) / values.length : null);
 
-// ---------------------------------------------------------------- platform (admin)
-async function platform({ since, until }) {
-  const [[users], props, resv, [rev], perDay] = await Promise.all([
-    q(`SELECT (SELECT COUNT(*) FROM guests WHERE is_deleted = 0) AS guests,
-              (SELECT COUNT(*) FROM hosts WHERE is_deleted = 0) AS hosts`),
-    q('SELECT status, COUNT(*) AS n FROM properties GROUP BY status'),
-    q('SELECT status, COUNT(*) AS n FROM reservations WHERE booking_datetime >= ? AND booking_datetime < ? GROUP BY status', [since, until]),
-    q(`SELECT COALESCE(SUM(total_price), 0) AS revenue, COUNT(*) AS n FROM reservations
-       WHERE status IN (?) AND booking_datetime >= ? AND booking_datetime < ?`, [BOOKED, since, until]),
-    q(`SELECT DATE(booking_datetime) AS day, COUNT(*) AS count FROM reservations
-       WHERE booking_datetime >= ? AND booking_datetime < ? GROUP BY DATE(booking_datetime)`, [since, until]),
-  ]);
-  const ev = await events();
-  const [byType, total] = await Promise.all([
-    ev.aggregate([
-      { $match: { timestamp: { $gte: iso(since), $lt: iso(until) } } },
-      { $group: { _id: '$event_type', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]).toArray(),
-    ev.estimatedDocumentCount(),
-  ]);
-  return {
-    users: { guests: num(users.guests), hosts: num(users.hosts) },
-    properties: statusMap(props),
-    reservations: { by_status: statusMap(resv), booked: num(rev.n), revenue: money(rev.revenue) },
-    bookings_per_day: fillDays(since, until, perDay),
-    events: {
-      stored_total: total,
-      in_window: byType.reduce((s, r) => s + r.count, 0),
-      by_type: byType.map((r) => ({ event_type: r._id, count: r.count })),
-    },
-  };
+// ---------------------------------------------------------------- funnel
+const STEPS = ['viewed', 'saved', 'requested', 'confirmed', 'completed'];
+
+/** Conversion between consecutive steps, named like the API doc example. */
+function conversion(steps) {
+  const out = {};
+  for (let i = 1; i < STEPS.length; i++) out[`${STEPS[i - 1]}_to_${STEPS[i]}`] = ratio(steps[STEPS[i]], steps[STEPS[i - 1]]);
+  return out;
 }
 
-// ---------------------------------------------------------------- traces
-/** All events of one journey, oldest first. */
-async function trace(traceId) {
-  return (await events()).find({ trace_id: traceId }, { projection: { _id: 0 } })
-    .sort({ timestamp: 1, received_at: 1 }).limit(1000).toArray();
+/**
+ * Listings in scope: one property, one host's listings, or (admin, no filter) all.
+ * Returns rows { property_id, host_id }.
+ */
+async function scopeProperties({ hostId, propertyId }) {
+  const where = ["status <> 'deleted'"];
+  const params = [];
+  if (hostId) { where.push('host_id = ?'); params.push(hostId); }
+  if (propertyId) { where.push('property_id = ?'); params.push(propertyId); }
+  return q(`SELECT property_id, host_id FROM properties WHERE ${where.join(' AND ')}`, params);
 }
 
-// ---------------------------------------------------------------- host
-async function host(hostId, { since, until, days }) {
-  const [listings, resv, [rev], [nights], responses, cancels] = await Promise.all([
-    q("SELECT property_id, title, status, rating, review_count FROM properties WHERE host_id = ? AND status <> 'deleted'", [hostId]),
-    q('SELECT status, COUNT(*) AS n FROM reservations WHERE host_id = ? AND booking_datetime >= ? AND booking_datetime < ? GROUP BY status', [hostId, since, until]),
-    q(`SELECT COALESCE(SUM(total_price), 0) AS revenue, COUNT(*) AS n FROM reservations
-       WHERE host_id = ? AND status IN (?) AND check_in >= ? AND check_in < ?`, [hostId, BOOKED, since, until]),
-    q(`SELECT COUNT(*) AS n FROM reservation_nights rn
-       JOIN reservations r ON r.reservation_id = rn.reservation_id
-       WHERE r.host_id = ? AND r.status IN (?) AND rn.night >= ? AND rn.night < ?`, [hostId, BOOKED, since, until]),
-    // minutes from the request to the host's first decision
-    q(`SELECT TIMESTAMPDIFF(SECOND, r.booking_datetime, MIN(h.at)) / 60 AS minutes
-       FROM reservations r JOIN reservation_status_history h ON h.reservation_id = r.reservation_id
-       WHERE r.host_id = ? AND h.from_status = 'REQUESTED' AND h.to_status IN ('CONFIRMED', 'DECLINED') AND h.actor_id = ?
-         AND r.booking_datetime >= ? AND r.booking_datetime < ?
-       GROUP BY r.reservation_id, r.booking_datetime`, [hostId, hostId, since, until]),
-    q(`SELECT
-         SUM(status = 'CANCELLED') AS cancelled,
-         SUM(status IN ('CONFIRMED', 'COMPLETED', 'CANCELLED')) AS ever_booked
-       FROM reservations WHERE host_id = ? AND booking_datetime >= ? AND booking_datetime < ?`, [hostId, since, until]),
-  ]);
-  const active = listings.filter((l) => l.status === 'active').length;
-  const rated = listings.filter((l) => l.rating !== null);
-  const reviews = (await getMongo()).collection('reviews');
-  const trend = await reviews.aggregate([
-    { $match: { host_id: hostId } },
-    { $group: { _id: { $substr: ['$created_datetime', 0, 7] }, average: { $avg: '$rating' }, count: { $sum: 1 } } },
-    { $sort: { _id: 1 } },
-  ]).toArray();
-  const minutes = responses.map((r) => num(r.minutes));
-  const c = cancels[0] || {};
-  return {
-    listings: { total: listings.length, active },
-    reservations: { by_status: statusMap(resv) },
-    revenue: money(rev.revenue),
-    booked_stays: num(rev.n),
-    occupancy: active ? Math.round((num(nights.n) / (active * days)) * 1000) / 1000 : 0,
-    booked_nights: num(nights.n),
-    cancellation_rate: num(c.ever_booked) ? Math.round((num(c.cancelled) / num(c.ever_booked)) * 1000) / 1000 : 0,
-    response_time_minutes: { median: median(minutes), decisions: minutes.length },
-    rating: {
-      average: rated.length ? Math.round((rated.reduce((s, l) => s + Number(l.rating), 0) / rated.length) * 100) / 100 : null,
-      trend: trend.map((t) => ({ month: t._id, average: Math.round(t.average * 100) / 100, count: t.count })),
-    },
-    properties: listings.map((l) => ({
-      property_id: l.property_id, title: l.title, status: l.status,
-      rating: l.rating === null ? null : Number(l.rating), review_count: num(l.review_count),
-    })),
-  };
+async function propertyOwner(propertyId) {
+  const [row] = await q("SELECT host_id FROM properties WHERE property_id = ? AND status <> 'deleted'", [propertyId]);
+  return row ? row.host_id : null;
 }
 
-// ---------------------------------------------------------------- funnel (host)
-async function funnel(hostId, { since, until, propertyId }) {
-  const own = await q("SELECT property_id FROM properties WHERE host_id = ? AND status <> 'deleted'", [hostId]);
-  let ids = own.map((r) => r.property_id);
-  if (propertyId) ids = ids.filter((id) => id === propertyId);
-  if (!ids.length) return { property_ids: ids, steps: emptySteps() };
-
-  const ev = await events();
-  const window = { $gte: iso(since), $lt: iso(until) };
-  const [views, saves, [resv]] = await Promise.all([
-    ev.countDocuments({ event_type: 'property.viewed', 'payload.property_id': { $in: ids }, timestamp: window }),
-    ev.countDocuments({ event_type: 'property.saved', 'payload.property_id': { $in: ids }, 'payload.saved': true, timestamp: window }),
+/** viewed -> saved -> requested -> confirmed -> completed for these listings in the window. */
+async function funnelCounts(ids, w) {
+  if (!ids.length) return Object.fromEntries(STEPS.map((s) => [s, 0]));
+  const ev = await mongo('events');
+  const [viewed, saved, [r]] = await Promise.all([
+    ev.countDocuments({ event_type: 'property.viewed', 'payload.property_id': { $in: ids }, timestamp: inWindow(w) }),
+    ev.countDocuments({ event_type: 'property.saved', 'payload.property_id': { $in: ids }, 'payload.saved': true, timestamp: inWindow(w) }),
     // "confirmed" = ever confirmed, so a stay cancelled after confirmation still counts,
     // but a request the guest withdrew before the host answered does not
     q(`SELECT COUNT(*) AS requested,
-              SUM(r.status IN ('CONFIRMED', 'COMPLETED') OR EXISTS (
+              SUM(r.status IN (?) OR EXISTS (
                 SELECT 1 FROM reservation_status_history h WHERE h.reservation_id = r.reservation_id AND h.to_status = 'CONFIRMED')) AS confirmed,
               SUM(r.status = 'COMPLETED') AS completed
-       FROM reservations r WHERE r.property_id IN (?) AND r.booking_datetime >= ? AND r.booking_datetime < ?`, [ids, since, until]),
+       FROM reservations r WHERE r.property_id IN (?) AND r.booking_datetime >= ? AND r.booking_datetime < ?`, [BOOKED, ids, w.fromSql, w.toSql]),
   ]);
-  const counts = [views, saves, num(resv.requested), num(resv.confirmed), num(resv.completed)];
-  return { property_ids: ids, steps: toSteps(counts) };
+  return { viewed, saved, requested: num(r.requested), confirmed: num(r.confirmed), completed: num(r.completed) };
 }
 
-const STEP_NAMES = ['viewed', 'saved', 'requested', 'confirmed', 'completed'];
-const emptySteps = () => toSteps([0, 0, 0, 0, 0]);
-/** Each step with its conversion from views and from the step before. */
-function toSteps(counts) {
-  return STEP_NAMES.map((name, i) => ({
-    step: name,
-    count: counts[i],
-    from_views: counts[0] ? Math.round((counts[i] / counts[0]) * 1000) / 1000 : null,
-    from_previous: i === 0 ? null : (counts[i - 1] ? Math.round((counts[i] / counts[i - 1]) * 1000) / 1000 : null),
-  }));
+async function funnel({ hostId, propertyId }, w) {
+  const props = await scopeProperties({ hostId, propertyId });
+  const steps = await funnelCounts(props.map((p) => p.property_id), w);
+  return { steps, conversion: conversion(steps) };
 }
 
-// ---------------------------------------------------------------- guest
-async function guest(guestId, { since, until }) {
-  const [perDay, all, [spent], [saved], [upcoming]] = await Promise.all([
-    q(`SELECT DATE(booking_datetime) AS day, COUNT(*) AS count FROM reservations
-       WHERE guest_id = ? AND booking_datetime >= ? AND booking_datetime < ? GROUP BY DATE(booking_datetime)`, [guestId, since, until]),
-    q('SELECT status, COUNT(*) AS n FROM reservations WHERE guest_id = ? GROUP BY status', [guestId]),
-    q('SELECT COALESCE(SUM(total_price), 0) AS total FROM reservations WHERE guest_id = ? AND status IN (?)', [guestId, BOOKED]),
-    q('SELECT COUNT(*) AS n FROM saved_properties WHERE guest_id = ?', [guestId]),
-    q("SELECT COUNT(*) AS n FROM reservations WHERE guest_id = ? AND status IN ('REQUESTED', 'CONFIRMED') AND check_out >= CURRENT_DATE()", [guestId]),
+// ---------------------------------------------------------------- host dashboard
+/** Minutes from a guest's first message in a thread to the host's first reply after it (API doc §8). */
+async function responseMinutes(hostId, w) {
+  const threads = await (await mongo('threads')).find({ host_id: hostId }, { projection: { _id: 1, guest_id: 1 } }).toArray();
+  if (!threads.length) return [];
+  const guestOf = new Map(threads.map((t) => [String(t._id), t.guest_id]));
+  const msgs = await (await mongo('messages')).find(
+    { thread_id: { $in: [...guestOf.keys()] } },
+    { projection: { thread_id: 1, sender_id: 1, timestamp: 1 } },
+  ).sort({ thread_id: 1, timestamp: 1 }).toArray();
+  const first = new Map(); // thread -> { guestAt, hostAt }
+  for (const m of msgs) {
+    const t = String(m.thread_id);
+    const at = new Date(m.timestamp).getTime();
+    const s = first.get(t) || {};
+    if (m.sender_id === guestOf.get(t) && s.guestAt === undefined) s.guestAt = at;
+    else if (m.sender_id === hostId && s.guestAt !== undefined && s.hostAt === undefined) s.hostAt = at;
+    first.set(t, s);
+  }
+  const from = Date.parse(w.from);
+  const to = Date.parse(w.to);
+  return [...first.values()]
+    .filter((s) => s.hostAt !== undefined && s.guestAt >= from && s.guestAt < to)
+    .map((s) => (s.hostAt - s.guestAt) / 60000);
+}
+
+async function hostDashboard(hostId, w) {
+  const listings = await q("SELECT property_id, nightly_price, status FROM properties WHERE host_id = ? AND status <> 'deleted'", [hostId]);
+  const active = listings.filter((l) => l.status === 'active');
+  const ids = listings.map((l) => l.property_id);
+  const activeIds = active.map((l) => l.property_id);
+  const days = Math.round((Date.parse(`${w.toDay}T00:00:00Z`) - Date.parse(`${w.fromDay}T00:00:00Z`)) / 86400000);
+
+  const [revenueRows, [booked], [blocked], [cancels], responses, trend, steps] = await Promise.all([
+    // revenue is earned per night: each booked night carries total_price / nights
+    ids.length ? q(`SELECT rn.night AS date, SUM(r.total_price / DATEDIFF(r.check_out, r.check_in)) AS revenue
+       FROM reservation_nights rn JOIN reservations r ON r.reservation_id = rn.reservation_id
+       WHERE r.host_id = ? AND r.status IN (?) AND rn.night >= ? AND rn.night < ?
+       GROUP BY rn.night`, [hostId, BOOKED, w.fromDay, w.toDay]) : [],
+    activeIds.length ? q(`SELECT COUNT(*) AS n FROM reservation_nights rn JOIN reservations r ON r.reservation_id = rn.reservation_id
+       WHERE r.property_id IN (?) AND r.status IN (?) AND rn.night >= ? AND rn.night < ?`, [activeIds, BOOKED, w.fromDay, w.toDay]) : [{ n: 0 }],
+    // nights the host blocked inside the window are not available
+    activeIds.length ? q(`SELECT COALESCE(SUM(DATEDIFF(LEAST(end_date, ?), GREATEST(start_date, ?))), 0) AS n
+       FROM availability_blocks WHERE property_id IN (?) AND status = 'blocked' AND source = 'host'
+         AND start_date < ? AND end_date > ?`, [w.toDay, w.fromDay, activeIds, w.toDay, w.fromDay]) : [{ n: 0 }],
+    q(`SELECT COUNT(DISTINCT h.reservation_id) AS n FROM reservation_status_history h
+       JOIN reservations r ON r.reservation_id = h.reservation_id
+       WHERE r.host_id = ? AND h.to_status = 'CANCELLED' AND h.at >= ? AND h.at < ?`, [hostId, w.fromSql, w.toSql]),
+    responseMinutes(hostId, w),
+    // monthly average rating over the 6 months ending at the window's end
+    (await mongo('reviews')).aggregate([
+      { $match: { host_id: hostId, created_datetime: { $gte: new Date(Date.parse(w.to) - 183 * 86400000).toISOString(), $lt: w.to } } },
+      { $group: { _id: { $substr: ['$created_datetime', 0, 7] }, rating: { $avg: '$rating' } } },
+      { $sort: { _id: 1 } },
+    ]).toArray(),
+    funnelCounts(ids, w),
   ]);
-  const db = await getMongo();
-  const [reviews, aiRequests, aiResults, approvals] = await Promise.all([
-    db.collection('reviews').countDocuments({ guest_id: guestId }),
-    db.collection('events').countDocuments({ event_type: 'ai.requests', actor_id: guestId }),
-    db.collection('events').find({ event_type: 'ai.results', 'payload.user_id': guestId }, { projection: { _id: 0, payload: 1 } })
-      .sort({ timestamp: -1 }).limit(50).toArray(),
-    db.collection('events').countDocuments({ event_type: 'ai.approvals', actor_id: guestId }),
-  ]);
-  const scores = aiResults.map((r) => r.payload && (r.payload.match_score ?? r.payload.score)).filter((s) => typeof s === 'number');
+
+  const available = active.length * days - num(blocked.n);
+  const byDay = new Map(revenueRows.map((r) => [String(r.date).slice(0, 10), { revenue: money(r.revenue) }]));
+  const revenueByDay = fillDays(w.fromDay, w.toDay, byDay, () => ({ revenue: 0 }));
+  const med = median(responses);
   return {
-    bookings_per_day: fillDays(since, until, perDay),
-    reservations: { by_status: statusMap(all), upcoming: num(upcoming.n), total_spent: money(spent.total) },
-    saved_properties: num(saved.n),
-    reviews_written: reviews,
-    ai: {
-      requests: aiRequests,
-      results: aiResults.length,
-      approvals,
-      average_match_score: scores.length ? Math.round((scores.reduce((s, x) => s + x, 0) / scores.length) * 1000) / 1000 : null,
-    },
+    occupancy_rate: available > 0 ? round(num(booked.n) / available, 3) : null,
+    avg_nightly_price: active.length ? money(active.reduce((s, l) => s + Number(l.nightly_price), 0) / active.length) : null,
+    revenue_total: money(revenueRows.reduce((s, r) => s + Number(r.revenue), 0)),
+    revenue_by_day: revenueByDay,
+    cancellations: num(cancels.n),
+    rating_trend: trend.map((t) => ({ month: t._id, rating: round(t.rating, 2) })),
+    median_response_minutes: med === null ? null : round(med, 1),
+    funnel: steps,
+  };
+}
+
+// ---------------------------------------------------------------- guest dashboard
+async function guestDashboard(guestId, w) {
+  const [perDay, statusRows] = await Promise.all([
+    q(`SELECT DATE(booking_datetime) AS date, COUNT(*) AS count FROM reservations
+       WHERE guest_id = ? AND booking_datetime >= ? AND booking_datetime < ? GROUP BY DATE(booking_datetime)`, [guestId, w.fromSql, w.toSql]),
+    q(`SELECT status, COUNT(*) AS n FROM reservations
+       WHERE guest_id = ? AND booking_datetime >= ? AND booking_datetime < ? GROUP BY status`, [guestId, w.fromSql, w.toSql]),
+  ]);
+  const ev = await mongo('events');
+  const [saves, requests, approvals] = await Promise.all([
+    ev.find({ event_type: 'property.saved', 'payload.guest_id': guestId, timestamp: inWindow(w) }, { projection: { _id: 0, timestamp: 1, 'payload.saved': 1 } }).toArray(),
+    ev.find({ event_type: 'ai.requests', actor_id: guestId, timestamp: inWindow(w) }, { projection: { _id: 0, trace_id: 1 } }).toArray(),
+    ev.find({ event_type: 'ai.approvals', timestamp: inWindow(w), $or: [{ actor_id: guestId }, { 'payload.reviewer_id': guestId }] },
+      { projection: { _id: 0, 'payload.decision': 1 } }).toArray(),
+  ]);
+  // match score = the recommended property's score in the Chair's result (§9) for this guest's requests
+  const results = requests.length
+    ? await ev.find({ event_type: 'ai.results', trace_id: { $in: requests.map((r) => r.trace_id) } }, { projection: { _id: 0, 'payload.recommended.score': 1 } }).toArray()
+    : [];
+  const scores = results.map((r) => r.payload?.recommended?.score).filter((s) => typeof s === 'number');
+
+  const savedByDay = new Map();
+  for (const s of saves) {
+    const d = s.timestamp.slice(0, 10);
+    const cur = savedByDay.get(d) || { saved: 0, unsaved: 0 };
+    if (s.payload?.saved) cur.saved++; else cur.unsaved++;
+    savedByDay.set(d, cur);
+  }
+  const statusSummary = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+  for (const r of statusRows) statusSummary[r.status] = num(r.n);
+  const decisions = { approved: 0, edited: 0, rejected: 0 };
+  for (const a of approvals) {
+    const d = String(a.payload?.decision || '').toLowerCase();
+    if (d in decisions) decisions[d]++;
+  }
+  return {
+    bookings_per_day: fillDays(w.fromDay, w.toDay, new Map(perDay.map((r) => [String(r.date).slice(0, 10), { count: num(r.count) }])), () => ({ count: 0 })),
+    status_summary: statusSummary,
+    saved_activity: fillDays(w.fromDay, w.toDay, savedByDay, () => ({ saved: 0, unsaved: 0 })),
+    avg_match_score: round(average(scores), 3),
+    recommendation_approvals: decisions,
   };
 }
 
 // ---------------------------------------------------------------- top properties
-async function top({ metric, since, until, limit }) {
-  if (metric === 'rating') {
-    const rows = await q(`SELECT property_id, title, city, rating AS value, review_count FROM properties
-      WHERE status = 'active' AND rating IS NOT NULL ORDER BY rating DESC, review_count DESC LIMIT ?`, [limit]);
-    return rows.map((r) => ({ ...r, value: Number(r.value), review_count: num(r.review_count) }));
-  }
+async function top({ metric, city, limit }, w) {
+  let cityIds = null;
+  if (city) cityIds = (await q("SELECT property_id FROM properties WHERE city = ? AND status <> 'deleted'", [city])).map((r) => r.property_id);
+  if (cityIds && !cityIds.length) return [];
+
+  let ranked; // [{ property_id, value }]
   if (metric === 'bookings' || metric === 'revenue') {
-    const agg = metric === 'bookings' ? 'COUNT(*)' : 'SUM(r.total_price)';
-    const rows = await q(`SELECT p.property_id, p.title, p.city, ${agg} AS value FROM reservations r
-      JOIN properties p ON p.property_id = r.property_id
-      WHERE r.status IN (?) AND r.booking_datetime >= ? AND r.booking_datetime < ?
-      GROUP BY p.property_id, p.title, p.city ORDER BY value DESC LIMIT ?`, [BOOKED, since, until, limit]);
-    return rows.map((r) => ({ ...r, value: metric === 'revenue' ? money(r.value) : num(r.value) }));
+    const agg = metric === 'bookings' ? 'COUNT(*)' : 'SUM(total_price)';
+    const rows = await q(`SELECT property_id, ${agg} AS value FROM reservations
+      WHERE status IN (?) AND booking_datetime >= ? AND booking_datetime < ? ${cityIds ? 'AND property_id IN (?)' : ''}
+      GROUP BY property_id ORDER BY value DESC, property_id LIMIT ?`,
+    cityIds ? [BOOKED, w.fromSql, w.toSql, cityIds, limit] : [BOOKED, w.fromSql, w.toSql, limit]);
+    ranked = rows.map((r) => ({ property_id: r.property_id, value: metric === 'revenue' ? money(r.value) : num(r.value) }));
+  } else {
+    const match = { event_type: metric === 'views' ? 'property.viewed' : 'property.saved', timestamp: inWindow(w) };
+    if (metric === 'saves') match['payload.saved'] = true;
+    if (cityIds) match['payload.property_id'] = { $in: cityIds };
+    const rows = await (await mongo('events')).aggregate([
+      { $match: match },
+      { $group: { _id: '$payload.property_id', value: { $sum: 1 } } },
+      { $sort: { value: -1, _id: 1 } },
+      { $limit: limit },
+    ]).toArray();
+    ranked = rows.map((r) => ({ property_id: r._id, value: r.value }));
   }
-  // views: from property.viewed events
-  const counts = await (await events()).aggregate([
-    { $match: { event_type: 'property.viewed', timestamp: { $gte: iso(since), $lt: iso(until) } } },
-    { $group: { _id: '$payload.property_id', value: { $sum: 1 } } },
-    { $sort: { value: -1 } },
-    { $limit: limit },
-  ]).toArray();
-  if (!counts.length) return [];
-  const names = await q('SELECT property_id, title, city FROM properties WHERE property_id IN (?)', [counts.map((c) => c._id)]);
-  const byId = new Map(names.map((n) => [n.property_id, n]));
-  return counts.map((c) => ({ property_id: c._id, title: byId.get(c._id)?.title ?? null, city: byId.get(c._id)?.city ?? null, value: c.value }));
+  if (!ranked.length) return [];
+  const titles = await q('SELECT property_id, title FROM properties WHERE property_id IN (?)', [ranked.map((r) => r.property_id)]);
+  const byId = new Map(titles.map((t) => [t.property_id, t.title]));
+  return ranked.map((r) => ({ property_id: r.property_id, title: byId.get(r.property_id) ?? null, value: r.value }));
 }
 
 // ---------------------------------------------------------------- geo (admin)
-async function geo({ since, until }) {
-  const rows = await q(`SELECT p.state, p.city,
-      COUNT(DISTINCT p.property_id) AS listings,
-      COUNT(r.reservation_id) AS bookings,
-      COALESCE(SUM(r.total_price), 0) AS revenue
-    FROM properties p
-    LEFT JOIN reservations r ON r.property_id = p.property_id AND r.status IN (?)
-      AND r.booking_datetime >= ? AND r.booking_datetime < ?
-    WHERE p.status = 'active'
-    GROUP BY p.state, p.city ORDER BY bookings DESC, listings DESC`, [BOOKED, since, until]);
-  return rows.map((r) => ({ state: r.state, city: r.city, listings: num(r.listings), bookings: num(r.bookings), revenue: money(r.revenue) }));
+async function geo({ groupBy }, w) {
+  const col = groupBy === 'state' ? 'state' : 'city'; // whitelisted by the route
+  const [prices, bookings] = await Promise.all([
+    q(`SELECT ${col} AS region, AVG(nightly_price) AS avg_price FROM properties WHERE status = 'active' GROUP BY ${col}`),
+    q(`SELECT p.${col} AS region, COUNT(*) AS bookings FROM reservations r JOIN properties p ON p.property_id = r.property_id
+       WHERE r.status IN (?) AND r.booking_datetime >= ? AND r.booking_datetime < ? GROUP BY p.${col}`, [BOOKED, w.fromSql, w.toSql]),
+  ]);
+  const booked = new Map(bookings.map((b) => [b.region, num(b.bookings)]));
+  // searches: no service publishes a search event yet (asked Sharan); null means "not measured", not zero
+  return prices
+    .map((p) => ({ region: p.region, searches: null, bookings: booked.get(p.region) || 0, avg_price: money(p.avg_price) }))
+    .sort((a, b) => b.bookings - a.bookings || String(a.region).localeCompare(String(b.region)));
+}
+
+// ---------------------------------------------------------------- platform (admin)
+/** Classify a trace by the event that started it. */
+function workflowOf(types) {
+  if (types.includes('ai.requests')) return 'ai_recommendation';
+  if (types.includes('booking.requested')) return 'booking';
+  return null;
+}
+
+async function platform(w) {
+  const db = await getMongo();
+  const [byTopic, total, traceSpans, stepStatus, rejected] = await Promise.all([
+    db.collection('events').aggregate([
+      { $match: { timestamp: inWindow(w) } },
+      { $group: { _id: '$event_type', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]).toArray(),
+    db.collection('events').countDocuments({ timestamp: inWindow(w) }),
+    // workflow latency = last step - first step of each trace (events and trace steps together)
+    db.collection('events').aggregate([
+      { $match: { timestamp: inWindow(w) } },
+      { $project: { trace_id: 1, timestamp: 1, event_type: 1 } },
+      { $unionWith: { coll: 'traces', pipeline: [{ $match: { timestamp: inWindow(w) } }, { $project: { trace_id: 1, timestamp: 1, event_type: 1 } }] } },
+      { $group: { _id: '$trace_id', first: { $min: '$timestamp' }, last: { $max: '$timestamp' }, types: { $addToSet: '$event_type' }, n: { $sum: 1 } } },
+      { $match: { n: { $gt: 1 } } },
+    ]).toArray(),
+    db.collection('traces').aggregate([
+      { $match: { timestamp: inWindow(w), status: { $in: ['error', 'retry'] } } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]).toArray(),
+    db.collection('rejected_envelopes').countDocuments({ received_at: { $gte: new Date(w.from), $lt: new Date(w.to) } }),
+  ]);
+  const latency = { booking: [], ai_recommendation: [] };
+  for (const t of traceSpans) {
+    const kind = workflowOf(t.types);
+    if (kind) latency[kind].push(Date.parse(t.last) - Date.parse(t.first));
+  }
+  const status = Object.fromEntries(stepStatus.map((s) => [s._id, s.count]));
+  return {
+    events_by_topic: Object.fromEntries(byTopic.map((r) => [r._id, r.count])),
+    throughput_per_min: w.minutes ? round(total / w.minutes, 1) : null,
+    errors: status.error || 0,
+    retries: status.retry || 0,
+    rejected_envelopes: rejected,
+    avg_workflow_latency_ms: {
+      booking: latency.booking.length ? Math.round(average(latency.booking)) : null,
+      ai_recommendation: latency.ai_recommendation.length ? Math.round(average(latency.ai_recommendation)) : null,
+    },
+  };
 }
 
 // ---------------------------------------------------------------- ai (admin)
-async function ai({ since, until }) {
-  const ev = await events();
-  const window = { $gte: iso(since), $lt: iso(until) };
-  const [byType, latencies] = await Promise.all([
-    ev.aggregate([
-      { $match: { event_type: { $regex: '^(ai|debate)\\.' }, timestamp: window } },
-      { $group: { _id: '$event_type', count: { $sum: 1 } } },
-    ]).toArray(),
-    // request -> result time per trace
-    ev.aggregate([
-      { $match: { event_type: { $in: ['ai.requests', 'ai.results'] }, timestamp: window } },
-      { $group: {
-        _id: '$trace_id',
-        requested: { $min: { $cond: [{ $eq: ['$event_type', 'ai.requests'] }, '$timestamp', null] } },
-        resulted: { $min: { $cond: [{ $eq: ['$event_type', 'ai.results'] }, '$timestamp', null] } },
-      } },
-      { $match: { requested: { $ne: null }, resulted: { $ne: null } } },
-    ]).toArray(),
-  ]);
-  const counts = Object.fromEntries(byType.map((r) => [r._id, r.count]));
-  const ms = latencies.map((l) => Date.parse(l.resulted) - Date.parse(l.requested)).filter((x) => x >= 0).sort((a, b) => a - b);
-  const pct = (p) => (ms.length ? ms[Math.min(ms.length - 1, Math.ceil((p / 100) * ms.length) - 1)] : null);
-  const requests = counts['ai.requests'] || 0;
-  const results = counts['ai.results'] || 0;
+async function ai({ version }, w) {
+  const db = await getMongo();
+  const ev = db.collection('events');
+  const reqMatch = { event_type: 'ai.requests', timestamp: inWindow(w) };
+  if (version) reqMatch['payload.config_version'] = version;
+  const requests = await ev.find(reqMatch, { projection: { _id: 0, trace_id: 1, timestamp: 1 } }).toArray();
+  const traceIds = requests.map((r) => r.trace_id);
+  const startOf = new Map(requests.map((r) => [r.trace_id, Date.parse(r.timestamp)]));
+  const debate = traceIds.length
+    ? await ev.find({ trace_id: { $in: traceIds }, event_type: { $in: ['debate.round.0', 'debate.round.1', 'debate.round.2', 'ai.results', 'ai.approvals'] } },
+      { projection: { _id: 0, trace_id: 1, event_type: 1, timestamp: 1, payload: 1 } }).toArray()
+    : [];
+
+  const disagreements = [];
+  let challenges = 0;
+  const votes = { keep: 0, switch: 0, abstain: 0 };
+  const approvals = { approved: 0, edited: 0, rejected: 0 };
+  let results = 0;
+  let withDissent = 0;
+  const firstPublish = new Map(); // `${trace}|${agent}` -> ms after the request
+  const verdictMs = [];
+  for (const e of debate) {
+    const p = e.payload || {};
+    const after = Date.parse(e.timestamp) - startOf.get(e.trace_id);
+    if (e.event_type === 'debate.round.0' && p.agent) {
+      const k = `${e.trace_id}|${p.agent}`;
+      if (!firstPublish.has(k) || after < firstPublish.get(k)) firstPublish.set(k, after);
+    } else if (e.event_type === 'debate.round.1') {
+      if (typeof p.disagreement_score === 'number') disagreements.push(p.disagreement_score);
+      challenges += Array.isArray(p.challenges) ? p.challenges.length : 0;
+    } else if (e.event_type === 'debate.round.2') {
+      const choice = p.vote && p.vote.choice;
+      if (choice in votes) votes[choice]++;
+    } else if (e.event_type === 'ai.results') {
+      results++;
+      if (Array.isArray(p.dissent) && p.dissent.length) withDissent++;
+      verdictMs.push(after);
+    } else if (e.event_type === 'ai.approvals') {
+      const d = String(p.decision || '').toLowerCase();
+      if (d in approvals) approvals[d]++;
+    }
+  }
+  const perAgent = {};
+  for (const [k, ms] of firstPublish) {
+    const agent = k.split('|')[1];
+    (perAgent[agent] = perAgent[agent] || []).push(ms);
+  }
+  const timeline = Object.fromEntries(Object.entries(perAgent).map(([a, list]) => [a, Math.round(average(list))]));
+  timeline.verdict = verdictMs.length ? Math.round(average(verdictMs)) : null;
+
+  // precision@10 / recall@10 come from the evaluated config version (§11 agent_versions)
+  const versions = db.collection('agent_versions');
+  const v = version ? await versions.findOne({ version_id: version }) : await versions.find({ status: 'promoted' }).sort({ created_at: -1 }).limit(1).next();
+  const metric = (doc, a, b) => (doc ? (doc[a] ?? doc[b] ?? null) : null);
+
   return {
-    requests,
-    results,
-    approvals: counts['ai.approvals'] || 0,
-    completion_rate: requests ? Math.round((results / requests) * 1000) / 1000 : null,
-    debate_messages: {
-      round_0: counts['debate.round.0'] || 0,
-      round_1: counts['debate.round.1'] || 0,
-      round_2: counts['debate.round.2'] || 0,
-    },
-    latency_ms: { completed: ms.length, median: median(ms), p95: pct(95), max: ms.length ? ms[ms.length - 1] : null },
+    version: v ? v.version_id : version || null,
+    tasks: requests.length,
+    avg_disagreement: round(average(disagreements), 2),
+    challenges,
+    votes,
+    dissent_rate: ratio(withDissent, results),
+    precision_at_10: metric(v, 'precision_at_10', 'precision@10'),
+    recall_at_10: metric(v, 'recall_at_10', 'recall@10'),
+    approvals,
+    publication_timeline_ms: timeline,
   };
+}
+
+// ---------------------------------------------------------------- traces
+// Which service produces each topic (API doc §10 topic catalog), for steps built from events.
+const PRODUCER = [
+  [/^user\./, 'user-service'],
+  [/^(property|availability)\./, 'property-service'],
+  [/^booking\.(requested|approved|declined|cancel_requested)$/, 'booking-service'],
+  [/^(booking|payment)\./, 'booking-worker'],
+  [/^message\./, 'messaging-service'],
+  [/^review\./, 'review-service'],
+  [/^(ai|debate)\./, 'ai-service'],
+];
+const producerOf = (type) => (PRODUCER.find(([re]) => re.test(type)) || [null, 'unknown'])[1];
+
+/**
+ * Steps of one journey, oldest first: trace documents the services wrote, plus one
+ * step per Kafka event (service = producer; latency_ms = delay until analytics consumed it).
+ * Returns { steps, participants } so the route can check who may see it.
+ */
+async function trace(traceId) {
+  const db = await getMongo();
+  const [docs, evs] = await Promise.all([
+    db.collection('traces').find({ trace_id: traceId }, { projection: { _id: 0 } }).sort({ timestamp: 1 }).limit(1000).toArray(),
+    db.collection('events').find({ trace_id: traceId }, { projection: { _id: 0 } }).sort({ timestamp: 1 }).limit(1000).toArray(),
+  ]);
+  const steps = [
+    ...docs.map((d) => ({
+      service: d.service, event_type: d.event_type, step: d.step ?? null, timestamp: d.timestamp,
+      latency_ms: d.latency_ms ?? null, status: d.status || 'ok', error: d.error ?? null,
+    })),
+    ...evs.map((e) => ({
+      service: producerOf(e.event_type), event_type: e.event_type, step: 'published', timestamp: e.timestamp,
+      latency_ms: e.received_at ? Math.max(0, new Date(e.received_at).getTime() - Date.parse(e.timestamp)) : null,
+      status: 'ok', error: null,
+    })),
+  ].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const participants = new Set();
+  for (const e of evs) {
+    for (const id of [e.actor_id, e.payload?.guest_id, e.payload?.host_id, e.payload?.user_id, e.payload?.reviewer_id]) if (id) participants.add(id);
+  }
+  return { steps, participants };
 }
 
 // ---------------------------------------------------------------- ingest
 /** Store events, deduped on event_id. Returns how many were new. */
 async function storeEvents(envs) {
   if (!envs.length) return 0;
-  const res = await (await events()).bulkWrite(envs.map((env) => ({
+  const res = await (await mongo('events')).bulkWrite(envs.map((env) => ({
     updateOne: {
       filter: { event_id: env.event_id },
       update: { $setOnInsert: { ...env, source: 'ingest', received_at: new Date() } },
@@ -290,4 +433,13 @@ async function storeEvents(envs) {
   return res.upsertedCount;
 }
 
-module.exports = { platform, trace, host, funnel, guest, top, geo, ai, storeEvents, fillDays, median, toSteps };
+/** Keep rejected envelopes so /analytics/platform can count them (rejected-envelope total). */
+async function storeRejected(items) {
+  if (!items.length) return;
+  await (await mongo('rejected_envelopes')).insertMany(items.map((i) => ({ ...i, received_at: new Date() })));
+}
+
+module.exports = {
+  funnel, propertyOwner, hostDashboard, guestDashboard, top, geo, platform, ai, trace, storeEvents, storeRejected,
+  fillDays, median, conversion, producerOf, STATUSES,
+};
