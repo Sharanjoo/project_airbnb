@@ -71,8 +71,13 @@ function weightedType() {
 }
 
 const pad = (n, w) => String(n).padStart(w, '0');
-// Same bcrypt hash as the seed users: password "password123".
-const PASSWORD_HASH = '$2a$10$Xxq3oADEySHsjwD9bUKb.OYUm.CA9KWTPeltUnSEuZp7WtZjbuTxK';
+// Generated hosts log in with the same password as the seed users. The hash is read from
+// the seeded host at runtime, so no password hash is stored in this script.
+async function seedPasswordHash(db) {
+  const [rows] = await db.query("SELECT password_hash FROM hosts WHERE host_id = 'hst_0001'");
+  if (!rows.length) throw new Error('Seed host hst_0001 not found. Start MySQL with the seed data first (npm run infra:up).');
+  return rows[0].password_hash;
+}
 
 function makeHosts() {
   return Array.from({ length: HOSTS }, (_, i) => ({
@@ -128,13 +133,14 @@ async function main() {
     database: process.env.MYSQL_DATABASE || 'airbnb',
   });
 
+  const passwordHash = await seedPasswordHash(db);
   const hosts = makeHosts();
   const props = Array.from({ length: COUNT }, (_, i) => makeProperty(i, hosts));
 
   await db.query(
     `INSERT INTO hosts (host_id, name, email, password_hash, verification_status, response_rate, response_time)
      VALUES ? ON DUPLICATE KEY UPDATE name = VALUES(name)`,
-    [hosts.map((h) => [h.host_id, h.name, h.email, PASSWORD_HASH, h.verification_status, h.response_rate, h.response_time])],
+    [hosts.map((h) => [h.host_id, h.name, h.email, passwordHash, h.verification_status, h.response_rate, h.response_time])],
   );
 
   const cols = `property_id, host_id, title, description, property_type, address_line1, city, state, zip, lat, lng,
