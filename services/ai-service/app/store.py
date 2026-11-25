@@ -38,20 +38,28 @@ def allowed_from(to_status: str) -> list[str]:
 
 def new_task(task: dict) -> dict:
     now = utc_now_iso()
-    return {
+    doc = {
         "status": "QUEUED", "round": None, "parsed_request": None, "plan": {"steps": [], "revisions": []},
         "agents": [{"name": a, "status": "pending", "published_at": None} for a in ANALYSIS_AGENTS],
-        "errors": [], "deadlines": {}, "started_at": None, "approval": None,
+        "errors": [], "deadlines": {}, "timings": {}, "retries": {}, "round1": None, "result": None,
+        "started_at": None, "approval": None, "frames": [],
         **copy.deepcopy(task), "created_at": now, "updated_at": now,
     }
+    doc["frames"] = [status_frame(doc["task_id"], doc["trace_id"], "QUEUED")]
+    return doc
 
 
-def new_message(*, trace_id, task_id, round_no, agent, payload, event_id=None) -> dict:
+def status_frame(task_id: str, trace_id: str, status: str) -> dict:
+    return {"key": f"status:{status}", "type": "status", "task_id": task_id, "trace_id": trace_id,
+            "timestamp": utc_now_iso(), "status": status}
+
+
+def new_message(*, trace_id, task_id, round_no, agent, payload, event_id=None, rejected=None) -> dict:
     return {"event_id": event_id or str(uuid.uuid4()), "trace_id": trace_id, "task_id": task_id,
-            "round": round_no, "agent": agent, "payload": copy.deepcopy(payload), "stored_at": utc_now_iso()}
+            "round": round_no, "agent": agent, "payload": copy.deepcopy(payload), "rejected": rejected or [], "stored_at": utc_now_iso()}
 
 
-_PROTECTED = {"_id", "task_id", "trace_id", "user_id", "status", "created_at"}
+_PROTECTED = {"_id", "task_id", "trace_id", "user_id", "status", "created_at", "frames"}
 
 
 def _changes(fields: dict) -> dict:
@@ -61,10 +69,41 @@ def _changes(fields: dict) -> dict:
     return {**copy.deepcopy(fields), "updated_at": utc_now_iso()}
 
 
+FIRST_VERSION = {"version_id": "matcher-v1", "parent_version": None, "description": "Initial weights", "status": "promoted"}
+
+
+def promotion_changes(current: dict | None, target: dict) -> tuple[dict, dict]:
+    """(fields for the promoted version, fields for the one it replaces). Going back to
+    the current version's parent is a rollback; otherwise the old one stays a candidate."""
+    rollback = bool(current) and current.get("parent_version") == target["version_id"]
+    return {"status": "promoted"}, {"status": "rolled_back" if rollback else "candidate", "was_promoted": True}
+
+
 class InMemoryTaskStore:
     def __init__(self):
         self.tasks: dict[str, dict] = {}
         self.messages: list[dict] = []
+        self.feedback: dict[str, dict] = {}
+        self.versions: dict[str, dict] = {"matcher-v1": dict(FIRST_VERSION)}
+
+    async def save_feedback(self, doc: dict) -> dict:
+        """Insert once per feedback_id; a repeat returns the stored one."""
+        return copy.deepcopy(self.feedback.setdefault(doc["feedback_id"], copy.deepcopy(doc)))
+
+    async def list_versions(self) -> list[dict]:
+        return [copy.deepcopy(self.versions[k]) for k in sorted(self.versions)]
+
+    async def get_version(self, version_id: str) -> dict | None:
+        return copy.deepcopy(self.versions.get(version_id))
+
+    async def current_version(self) -> dict | None:
+        return next((copy.deepcopy(v) for v in self.versions.values() if v["status"] == "promoted"), None)
+
+    async def promote(self, target: dict, current: dict | None, fields: dict) -> None:
+        new, old = promotion_changes(current, target)
+        self.versions[target["version_id"]].update(new, **fields)
+        if current:
+            self.versions[current["version_id"]].update(old)
 
     async def start(self):
         pass
@@ -102,7 +141,20 @@ class InMemoryTaskStore:
         if not task or task["status"] not in allowed_from(to_status):
             return None
         task.update(changes, status=to_status)
+        task["frames"].append(status_frame(task_id, task["trace_id"], to_status))
         return await self.get(task_id)
+
+    async def add_frame(self, task_id: str, key: str, frame: dict) -> bool:
+        """Append one stream frame, once per key."""
+        task = self.tasks.get(task_id)
+        if not task or any(f["key"] == key for f in task["frames"]):
+            return False
+        task["frames"].append({"key": key, "task_id": task_id, "trace_id": task["trace_id"],
+                               "timestamp": utc_now_iso(), **copy.deepcopy(frame)})
+        return True
+
+    async def list_open(self) -> list[dict]:
+        return [copy.deepcopy(t) for t in self.tasks.values() if t["status"] in OPEN_STATUSES]
 
     async def add_message(self, **kw) -> bool:
         """Store a round message once. False means this event_id was already stored."""
@@ -136,6 +188,10 @@ class MongoTaskStore:
         await self.db.ai_tasks.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
         await self.db.debate_messages.create_index([("trace_id", ASCENDING), ("round", ASCENDING), ("agent", ASCENDING)])
         await self.db.debate_messages.create_index("event_id", unique=True)
+        await self.db.feedback.create_index("feedback_id", unique=True, sparse=True)
+        # Seeded by 001_init.js on a new volume; make sure it exists on an old one too.
+        await self.db.agent_versions.create_index("version_id", unique=True)
+        await self.db.agent_versions.update_one({"version_id": FIRST_VERSION["version_id"]}, {"$setOnInsert": dict(FIRST_VERSION)}, upsert=True)
 
     async def stop(self):
         if self.client:
@@ -166,8 +222,25 @@ class MongoTaskStore:
         return await self._set({"task_id": task_id}, _changes(fields))
 
     async def transition(self, task_id: str, to_status: str, fields: dict | None = None) -> dict | None:
-        return await self._set({"task_id": task_id, "status": {"$in": allowed_from(to_status)}},
-                               {**_changes(fields or {}), "status": to_status})
+        changes = {**_changes(fields or {}), "status": to_status}
+        task = await self.db.ai_tasks.find_one({"task_id": task_id}, {"trace_id": 1})
+        if not task:
+            return None
+        return await self.db.ai_tasks.find_one_and_update(
+            {"task_id": task_id, "status": {"$in": allowed_from(to_status)}},
+            {"$set": changes, "$push": {"frames": status_frame(task_id, task["trace_id"], to_status)}},
+            projection={"_id": 0}, return_document=ReturnDocument.AFTER)
+
+    async def add_frame(self, task_id: str, key: str, frame: dict) -> bool:
+        task = await self.db.ai_tasks.find_one({"task_id": task_id}, {"trace_id": 1})
+        if not task:
+            return False
+        doc = {"key": key, "task_id": task_id, "trace_id": task["trace_id"], "timestamp": utc_now_iso(), **frame}
+        done = await self.db.ai_tasks.update_one({"task_id": task_id, "frames.key": {"$ne": key}}, {"$push": {"frames": doc}})
+        return done.modified_count == 1
+
+    async def list_open(self) -> list[dict]:
+        return await self.db.ai_tasks.find({"status": {"$in": OPEN_STATUSES}}, {"_id": 0, "frames": 0}).to_list(None)
 
     async def add_message(self, **kw) -> bool:
         try:
@@ -179,3 +252,25 @@ class MongoTaskStore:
     async def list_messages(self, trace_id: str) -> list[dict]:
         cursor = self.db.debate_messages.find({"trace_id": trace_id}, {"_id": 0})
         return await cursor.sort([("round", ASCENDING), ("stored_at", ASCENDING), ("_id", ASCENDING)]).to_list(None)
+
+    async def save_feedback(self, doc: dict) -> dict:
+        try:
+            await self.db.feedback.insert_one(dict(doc))
+            return doc
+        except DuplicateKeyError:
+            return await self.db.feedback.find_one({"feedback_id": doc["feedback_id"]}, {"_id": 0})
+
+    async def list_versions(self) -> list[dict]:
+        return await self.db.agent_versions.find({}, {"_id": 0}).sort("version_id", ASCENDING).to_list(None)
+
+    async def get_version(self, version_id: str) -> dict | None:
+        return await self.db.agent_versions.find_one({"version_id": version_id}, {"_id": 0})
+
+    async def current_version(self) -> dict | None:
+        return await self.db.agent_versions.find_one({"status": "promoted"}, {"_id": 0}, sort=[("promoted_at", DESCENDING)])
+
+    async def promote(self, target: dict, current: dict | None, fields: dict) -> None:
+        # New one first: if the second write is lost, current_version() still picks the newest.
+        new, old = promotion_changes(current, target)
+        await self.db.agent_versions.update_one({"version_id": target["version_id"]}, {"$set": {**new, **fields}})
+        await self.db.agent_versions.update_many({"status": "promoted", "version_id": {"$ne": target["version_id"]}}, {"$set": old})

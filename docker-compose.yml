@@ -195,6 +195,7 @@ services:
     build: { context: ., dockerfile: services/ai-service/Dockerfile }
     ports: ["8007:8007"]
     environment: &ai-env
+      JWT_SECRET: ${JWT_SECRET:-change-me-dev-secret} # the stream checks the token itself
       KAFKA_BROKERS: kafka:9092
       MONGO_URL: mongodb://mongo:27017
       MONGO_DB: airbnb

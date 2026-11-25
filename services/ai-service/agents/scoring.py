@@ -86,26 +86,31 @@ def _confidence(ranked: list[dict], eligible: int, unknown: int = 0) -> float:
 MATCH_WEIGHTS = {"price": 0.40, "capacity": 0.25, "rating": 0.25, "extras": 0.10}
 
 
+def matching_score(p: dict, req: dict, pool: PropertyPool, drop: frozenset = frozenset()) -> float:
+    """drop removes signals and rescales the rest (decision rule 3, API doc §11)."""
+    limit = req.get("price_max") or max(q["nightly_price"] for q in pool.properties)
+    parts = {
+        "price": max(0.0, 1 - p["nightly_price"] / limit),
+        "capacity": max(0.0, 1 - 0.2 * max(0, p["capacity"] - req["guests"])) if req.get("guests") else min(1.0, p["capacity"] / 4),
+        "rating": (p["rating"] - 3) / 2 if p["rating"] is not None else 0.5,
+        "extras": len(p["amenities"]) / 10,
+    }
+    weights = {k: w for k, w in MATCH_WEIGHTS.items() if k not in drop}
+    base = sum(w * max(0.0, parts[k]) for k, w in weights.items()) / sum(weights.values())
+    return banded(base, len(failures(p, req)))
+
+
 def matching(req: dict, pool: PropertyPool) -> dict:
-    top_price = max(p["nightly_price"] for p in pool.properties)
     scored, eligible = [], 0
     for p in pool.properties:
         failed = failures(p, req)
         eligible += not failed
-        limit = req.get("price_max") or top_price
-        parts = {
-            "price": max(0.0, 1 - p["nightly_price"] / limit),
-            "capacity": max(0.0, 1 - 0.2 * max(0, p["capacity"] - req["guests"])) if req.get("guests") else min(1.0, p["capacity"] / 4),
-            "rating": (p["rating"] - 3) / 2 if p["rating"] is not None else 0.5,
-            "extras": len(p["amenities"]) / 10,
-        }
-        base = sum(MATCH_WEIGHTS[k] * max(0.0, v) for k, v in parts.items())
         price = f"${p['nightly_price']:g}/night"
         if req.get("price_max") is not None:
             gap = req["price_max"] - p["nightly_price"]
             price += f", ${abs(gap):g} {'under' if gap >= 0 else 'over'} budget"
         rating = f"{p['rating']:g} rating over {p['review_count']} reviews" if p["rating"] is not None else "No rating yet"
-        scored.append(_item(p, banded(base, len(failed)), _unmet(failed) + [price, f"Sleeps {p['capacity']} in {p['city']}", rating]))
+        scored.append(_item(p, matching_score(p, req, pool), _unmet(failed) + [price, f"Sleeps {p['capacity']} in {p['city']}", rating]))
     ranked = _rank(scored)[:TOP_N]
     return {"ranked": ranked, "confidence": _confidence(ranked, eligible), "eligible_count": eligible}
 

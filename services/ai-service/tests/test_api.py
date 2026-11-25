@@ -1,9 +1,12 @@
 import os
+import time
 
 os.environ["KAFKA_ENABLED"] = "false"
 
+import jwt  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app import config  # noqa: E402
 from app.main import app, bus, store  # noqa: E402
 
 GUEST = {"X-User-Id": "gst_0001", "X-User-Role": "guest"}
@@ -73,5 +76,6 @@ def test_open_task_limit_is_429():
 def test_stream_sends_status_then_closes():
     with TestClient(app) as c:
         task_id = c.post("/ai/requests", headers=GUEST, json={"request_text": "beach house"}).json()["data"]["task_id"]
-        with c.websocket_connect(f"/ai/tasks/{task_id}/stream") as ws:
+        token = jwt.encode({"sub": "gst_0001", "role": "guest", "exp": time.time() + 60}, config.JWT_SECRET, "HS256")
+        with c.websocket_connect(f"/ai/tasks/{task_id}/stream?token={token}") as ws:
             assert ws.receive_json()["status"] == "QUEUED"

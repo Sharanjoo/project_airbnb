@@ -153,7 +153,7 @@ Working and tested:
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)
 - Notification gateway WebSocket push by channel
-- AI service (Slice 5, in progress): MongoDB task store, owner-checked task/result/debate reads, request parser (optional Ollama via `LLM_PROVIDER`), and matching, risk and fairness round-0 opinions over Kafka with harness checks. The Chair, stream, approval and client page are not built yet
+- AI service (Slice 5, in progress): MongoDB task store, request parser (optional Ollama via `LLM_PROVIDER`), matching / risk / fairness agents, Chair with challenges, votes, decision rule, timeouts and `ai.results`, live WebSocket stream, approval, feedback and versions. The client page and the 50-request benchmark are not built yet
 
 Stubs that return `501 NOT_IMPLEMENTED` until their owner fills them in: every
 other endpoint, and all client pages.

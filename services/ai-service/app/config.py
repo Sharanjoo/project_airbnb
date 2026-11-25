@@ -10,12 +10,20 @@ MONGO_DB = os.getenv("MONGO_DB", "airbnb")
 CONFIG_VERSION = os.getenv("AI_CONFIG_VERSION", "matcher-v1")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-dev-secret")
 
+STREAM_POLL_S = float(os.getenv("STREAM_POLL_S", "0.25"))
+
 # Below the gateway's 3 s proxy timeout, so a Kafka outage returns 503 from here
 PUBLISH_TIMEOUT_S = float(os.getenv("PUBLISH_TIMEOUT_S", "2"))
 
 # Debate deadlines (API doc §11)
 ROUND0_DEADLINE_S = float(os.getenv("ROUND0_DEADLINE_S", "20"))
 ROUND2_DEADLINE_S = float(os.getenv("ROUND2_DEADLINE_S", "15"))
+PARSE_DEADLINE_S = float(os.getenv("PARSE_DEADLINE_S", "30"))
+# Last resort: a task still open after this long is closed, whatever went wrong.
+TASK_DEADLINE_S = float(os.getenv("TASK_DEADLINE_S", "120"))
+SWEEP_INTERVAL_S = float(os.getenv("SWEEP_INTERVAL_S", "0.5"))
+# Plan step 6. Empty = skip the check and say so in limitations.
+PROPERTY_SERVICE_URL = os.getenv("PROPERTY_SERVICE_URL", "")
 MAX_OPEN_TASKS_PER_USER = int(os.getenv("MAX_OPEN_TASKS_PER_USER", "3"))
 
 # Optional LLM (app/llm.py). "none" = deterministic, no model needed.

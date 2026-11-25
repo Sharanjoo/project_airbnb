@@ -1,4 +1,4 @@
-"""Run one agent: python -m agents <parser|matching|risk|fairness|chair|explainer>"""
+"""Run one agent: python -m agents <parser|matching|risk|fairness|chair>"""
 import sys
 
 from .base import main

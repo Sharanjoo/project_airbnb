@@ -119,6 +119,53 @@ def check_opinion(msg: dict, *, expected_trace_id: str, expected_task_id: str, k
     return problems
 
 
+def check_vote(msg: dict, *, expected_trace_id: str, expected_task_id: str, round1: dict) -> list[str]:
+    """Validate a debate.round.2 message against the round-1 message it answers."""
+    p = msg.get("payload")
+    if not isinstance(p, dict):
+        return ["payload must be an object"]
+    problems = []
+    entity = msg.get("entity") if isinstance(msg.get("entity"), dict) else {}
+    if msg.get("trace_id") != expected_trace_id or entity.get("entity_id") != expected_task_id:
+        problems.append("trace_id or entity_id does not match the task")
+    agent = p.get("agent")
+    if msg.get("actor_type") != "agent" or msg.get("actor_id") != f"agent:{agent}":
+        problems.append("payload.agent does not match actor_id")
+    if agent not in round1["voters"]:
+        return problems + ["payload.agent is not a voter in this debate"]
+    if p.get("round") != 2:
+        problems.append("payload.round must be 2")
+    responses = p.get("responses")
+    if not isinstance(responses, list) or not all(isinstance(r, dict) for r in responses):
+        problems.append("payload.responses must be a list of objects")
+        responses = []
+    if any(not isinstance(r.get("answer"), str) or not r["answer"].strip() for r in responses):
+        problems.append("every response needs an answer")
+    answered = {str(r.get("challenge_id")) for r in responses}
+    mine = {c["challenge_id"] for c in round1["challenges"] if c["to_agent"] == agent}
+    if answered != mine:
+        problems.append("responses must answer exactly the challenges addressed to this agent")
+    vote = p.get("vote")
+    if not isinstance(vote, dict):
+        return problems + ["payload.vote is required"]
+    if vote.get("choice") not in ("keep", "switch", "abstain"):
+        problems.append("vote.choice must be keep, switch or abstain")
+    if not isinstance(vote.get("reason"), str) or not vote["reason"].strip():
+        problems.append("vote.reason must not be empty")
+    if vote.get("choice") in ("keep", "switch"):
+        if vote.get("property_id") not in [o["property_id"] for o in round1["options"]]:
+            problems.append("vote.property_id is not one of the options")
+        elif (vote["property_id"] == round1["top_picks"].get(agent)) != (vote["choice"] == "keep"):
+            problems.append("vote.choice does not match the agent's own first choice")
+    return problems
+
+
+def vote_is_backed(vote: dict, known_refs) -> bool:
+    """A vote must cite evidence from a stored message, or it counts as an abstention."""
+    refs = vote.get("evidence_refs")
+    return isinstance(refs, list) and any(isinstance(r, str) and r in known_refs for r in refs)
+
+
 def disagreement_score(top3_by_agent: dict[str, list[str]]) -> float:
     """Max over agent pairs of (1 - Jaccard overlap of their top-3). API doc §11."""
     agents = list(top3_by_agent)

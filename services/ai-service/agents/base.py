@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import random
+import signal
 from datetime import datetime, timezone
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
@@ -25,6 +26,7 @@ log = logging.getLogger("agents")
 MAX_RETRIES = 3
 BASE_DELAY_S = 0.2
 SCHEMA_VERSION = 1
+PUBLISH_TIMEOUT_S = 10
 
 
 class PermanentError(Exception):
@@ -47,6 +49,9 @@ class BaseAgent:
     async def handle(self, env: dict, topic: str) -> None:
         raise NotImplementedError
 
+    async def background(self) -> None:
+        """Work that is not triggered by a message (the Chair's deadlines)."""
+
     async def open_task(self, env: dict) -> dict | None:
         """The task this message belongs to, or None to drop it (trace isolation, §11)."""
         task = await self.store.get(env["entity"]["entity_id"])
@@ -63,7 +68,7 @@ class BaseAgent:
         problems = validate_envelope(env, topic)
         if problems:
             raise PermanentError("; ".join(problems))
-        await self.producer.send_and_wait(topic, json.dumps(env).encode(), key=trace_id.encode())
+        await asyncio.wait_for(self.producer.send_and_wait(topic, json.dumps(env).encode(), key=trace_id.encode()), PUBLISH_TIMEOUT_S)
 
     async def send_to_dlq(self, msg, reason: str):
         headers = {"failure_reason": reason[:1000], "failed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -106,8 +111,12 @@ class BaseAgent:
         consumer = AIOKafkaConsumer(*self.subscribe, bootstrap_servers=config.KAFKA_BROKERS, group_id=self.group_id,
                                     enable_auto_commit=False, auto_offset_reset="earliest")
         self.producer = AIOKafkaProducer(bootstrap_servers=config.KAFKA_BROKERS, enable_idempotence=True)
+        background = None
         try:
             await self.producer.start()
+            # Before joining the group: after a crash Kafka can hold the old member's place
+            # for a while, and deadlines must not wait for that.
+            background = asyncio.create_task(self.background())
             await consumer.start()
             log.info("agent %s consuming %s as %s", self.name, self.subscribe, self.group_id)
             async for msg in consumer:
@@ -117,6 +126,8 @@ class BaseAgent:
                 except CommitFailedError:
                     log.warning("agent %s rebalanced before commit; the message will be redelivered", self.name)
         finally:
+            if background:
+                background.cancel()
             await consumer.stop()
             await self.producer.stop()
             await self.store.stop()
@@ -124,4 +135,14 @@ class BaseAgent:
 
 def main(agent_cls):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    asyncio.run(agent_cls().run())
+
+    async def run():
+        # docker stop sends SIGTERM: leave the consumer group cleanly so a restart rejoins at once.
+        task = asyncio.create_task(agent_cls().run())
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+        try:
+            await task
+        except asyncio.CancelledError:
+            log.info("agent %s stopped", agent_cls.name)
+
+    asyncio.run(run())
