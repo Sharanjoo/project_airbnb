@@ -26,6 +26,10 @@ const OUT = path.join(__dirname, 'results');
 async function cleanup(sql) {
   const like = `${PREFIX}%`;
   const [res] = await sql.query('SELECT COUNT(*) AS n FROM reservations WHERE guest_id LIKE ?', [like]);
+  // the worker's processed_events rows: keyed by the request's Idempotency-Key, reservation id = res_<key without dashes>
+  await sql.query(
+    `DELETE p FROM processed_events p JOIN reservations r ON r.reservation_id = CONCAT('res_', REPLACE(LEFT(p.idempotency_key, 36), '-', ''))
+     WHERE r.guest_id LIKE ?`, [like]);
   await sql.query('DELETE h FROM reservation_status_history h JOIN reservations r ON r.reservation_id = h.reservation_id WHERE r.guest_id LIKE ?', [like]);
   await sql.query('DELETE FROM reservations WHERE guest_id LIKE ?', [like]); // reservation_nights cascade
   await sql.query('DELETE FROM idempotency_keys WHERE actor_id LIKE ?', [like]);
