@@ -17,6 +17,8 @@ test('gateway routes, authenticates and propagates identity + trace id', async (
   await new Promise((r) => upstream.listen(0, r));
   process.env.BOOKING_SERVICE_URL = `http://127.0.0.1:${upstream.address().port}`;
   process.env.PROPERTY_SERVICE_URL = process.env.BOOKING_SERVICE_URL;
+  // nothing listens on port 1, so the review service is down here even when the real stack is running
+  process.env.REVIEW_SERVICE_URL = 'http://127.0.0.1:1';
   delete require.cache[require.resolve('../src/index')];
   const { createGateway } = require('../src/index');
   const gw = createGateway({ accounts: ALL_ACTIVE }).listen(0);
