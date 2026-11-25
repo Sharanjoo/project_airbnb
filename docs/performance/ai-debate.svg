@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="AI debate timings, rule-based parser (p50)">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">AI debate timings, rule-based parser (p50)</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">From the task being queued; 3 concurrent debates is feature 13.11. 60/60 debates finished</text>
+<rect x="64" y="56" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="79" y="65" font-size="12" fill="#1f2328">First agent update</text>
+<rect x="208.8" y="56" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="223.8" y="65" font-size="12" fill="#1f2328">First challenge</text>
+<rect x="333.8" y="56" width="10" height="10" rx="2" fill="#1baf7a"/>
+<text x="348.8" y="65" font-size="12" fill="#1f2328">Verdict</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">50</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">100</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">milliseconds</text>
+<path d="M195,344 V313.42 Q195,309.42 199,309.42 H215 Q219,309.42 219,313.42 V344 Z" fill="#2a78d6"><title>First agent update, 1 at a time: 13 ms</title></path>
+<text x="207" y="305.42" font-size="10" fill="#1f2328" text-anchor="middle">13</text>
+<path d="M221,344 V286.82 Q221,282.82 225,282.82 H241 Q245,282.82 245,286.82 V344 Z" fill="#eb6834"><title>First challenge, 1 at a time: 23 ms</title></path>
+<text x="233" y="278.82" font-size="10" fill="#1f2328" text-anchor="middle">23</text>
+<path d="M247,344 V233.62 Q247,229.62 251,229.62 H267 Q271,229.62 271,233.62 V344 Z" fill="#1baf7a"><title>Verdict, 1 at a time: 43 ms</title></path>
+<text x="259" y="225.62" font-size="10" fill="#1f2328" text-anchor="middle">43</text>
+<text x="233" y="362" font-size="12" fill="#1f2328" text-anchor="middle">1 at a time</text>
+<path d="M533,344 V270.86 Q533,266.86 537,266.86 H553 Q557,266.86 557,270.86 V344 Z" fill="#2a78d6"><title>First agent update, 3 at a time: 29 ms</title></path>
+<text x="545" y="262.86" font-size="10" fill="#1f2328" text-anchor="middle">29</text>
+<path d="M559,344 V220.32 Q559,216.32 563,216.32 H579 Q583,216.32 583,220.32 V344 Z" fill="#eb6834"><title>First challenge, 3 at a time: 48 ms</title></path>
+<text x="571" y="212.32" font-size="10" fill="#1f2328" text-anchor="middle">48</text>
+<path d="M585,344 V116.58000000000001 Q585,112.58000000000001 589,112.58000000000001 H605 Q609,112.58000000000001 609,116.58000000000001 V344 Z" fill="#1baf7a"><title>Verdict, 3 at a time: 87 ms</title></path>
+<text x="597" y="108.58000000000001" font-size="10" fill="#1f2328" text-anchor="middle">87</text>
+<text x="571" y="362" font-size="12" fill="#1f2328" text-anchor="middle">3 at a time</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>

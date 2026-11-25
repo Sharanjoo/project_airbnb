@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Property search latency (MySQL, with indexes)">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">Property search latency (MySQL, with indexes)</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">Latency grows with users once throughput is saturated (~1,150 req/s)</text>
+<rect x="64" y="56" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="79" y="65" font-size="12" fill="#1f2328">p50</text>
+<rect x="109.8" y="56" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="124.8" y="65" font-size="12" fill="#1f2328">p95</text>
+<rect x="155.6" y="56" width="10" height="10" rx="2" fill="#1baf7a"/>
+<text x="170.6" y="65" font-size="12" fill="#1f2328">p99</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">50</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">100</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">milliseconds</text>
+<path d="M93.6,344 V337.36 Q93.6,333.36 97.6,333.36 H113.6 Q117.6,333.36 117.6,337.36 V344 Z" fill="#2a78d6"><title>p50, 1 user: 4 ms</title></path>
+<text x="105.6" y="329.36" font-size="10" fill="#1f2328" text-anchor="middle">4</text>
+<path d="M119.6,344 V332.04 Q119.6,328.04 123.6,328.04 H139.6 Q143.6,328.04 143.6,332.04 V344 Z" fill="#eb6834"><title>p95, 1 user: 6 ms</title></path>
+<text x="131.6" y="324.04" font-size="10" fill="#1f2328" text-anchor="middle">6</text>
+<path d="M145.6,344 V329.38 Q145.6,325.38 149.6,325.38 H165.6 Q169.6,325.38 169.6,329.38 V344 Z" fill="#1baf7a"><title>p99, 1 user: 7 ms</title></path>
+<text x="157.6" y="321.38" font-size="10" fill="#1f2328" text-anchor="middle">7</text>
+<text x="131.6" y="362" font-size="12" fill="#1f2328" text-anchor="middle">1 user</text>
+<path d="M228.79999999999998,344 V324.06 Q228.79999999999998,320.06 232.79999999999998,320.06 H248.79999999999998 Q252.79999999999998,320.06 252.79999999999998,324.06 V344 Z" fill="#2a78d6"><title>p50, 10 users: 9 ms</title></path>
+<text x="240.79999999999998" y="316.06" font-size="10" fill="#1f2328" text-anchor="middle">9</text>
+<path d="M254.79999999999998,344 V316.08 Q254.79999999999998,312.08 258.79999999999995,312.08 H274.79999999999995 Q278.79999999999995,312.08 278.79999999999995,316.08 V344 Z" fill="#eb6834"><title>p95, 10 users: 12 ms</title></path>
+<text x="266.79999999999995" y="308.08" font-size="10" fill="#1f2328" text-anchor="middle">12</text>
+<path d="M280.79999999999995,344 V310.76 Q280.79999999999995,306.76 284.79999999999995,306.76 H300.79999999999995 Q304.79999999999995,306.76 304.79999999999995,310.76 V344 Z" fill="#1baf7a"><title>p99, 10 users: 14 ms</title></path>
+<text x="292.79999999999995" y="302.76" font-size="10" fill="#1f2328" text-anchor="middle">14</text>
+<text x="266.79999999999995" y="362" font-size="12" fill="#1f2328" text-anchor="middle">10 users</text>
+<path d="M364,344 V297.46 Q364,293.46 368,293.46 H384 Q388,293.46 388,297.46 V344 Z" fill="#2a78d6"><title>p50, 25 users: 19 ms</title></path>
+<text x="376" y="289.46" font-size="10" fill="#1f2328" text-anchor="middle">19</text>
+<path d="M390,344 V281.5 Q390,277.5 394,277.5 H410 Q414,277.5 414,281.5 V344 Z" fill="#eb6834"><title>p95, 25 users: 25 ms</title></path>
+<text x="402" y="273.5" font-size="10" fill="#1f2328" text-anchor="middle">25</text>
+<path d="M416,344 V270.86 Q416,266.86 420,266.86 H436 Q440,266.86 440,270.86 V344 Z" fill="#1baf7a"><title>p99, 25 users: 29 ms</title></path>
+<text x="428" y="262.86" font-size="10" fill="#1f2328" text-anchor="middle">29</text>
+<text x="402" y="362" font-size="12" fill="#1f2328" text-anchor="middle">25 users</text>
+<path d="M499.19999999999993,344 V246.92000000000002 Q499.19999999999993,242.92000000000002 503.19999999999993,242.92000000000002 H519.1999999999999 Q523.1999999999999,242.92000000000002 523.1999999999999,246.92000000000002 V344 Z" fill="#2a78d6"><title>p50, 50 users: 38 ms</title></path>
+<text x="511.19999999999993" y="238.92000000000002" font-size="10" fill="#1f2328" text-anchor="middle">38</text>
+<path d="M525.1999999999999,344 V228.3 Q525.1999999999999,224.3 529.1999999999999,224.3 H545.1999999999999 Q549.1999999999999,224.3 549.1999999999999,228.3 V344 Z" fill="#eb6834"><title>p95, 50 users: 45 ms</title></path>
+<text x="537.1999999999999" y="220.3" font-size="10" fill="#1f2328" text-anchor="middle">45</text>
+<path d="M551.1999999999999,344 V215 Q551.1999999999999,211 555.1999999999999,211 H571.1999999999999 Q575.1999999999999,211 575.1999999999999,215 V344 Z" fill="#1baf7a"><title>p99, 50 users: 50 ms</title></path>
+<text x="563.1999999999999" y="207" font-size="10" fill="#1f2328" text-anchor="middle">50</text>
+<text x="537.1999999999999" y="362" font-size="12" fill="#1f2328" text-anchor="middle">50 users</text>
+<path d="M634.4,344 V148.5 Q634.4,144.5 638.4,144.5 H654.4 Q658.4,144.5 658.4,148.5 V344 Z" fill="#2a78d6"><title>p50, 100 users: 75 ms</title></path>
+<text x="646.4" y="140.5" font-size="10" fill="#1f2328" text-anchor="middle">75</text>
+<path d="M660.4,344 V119.24000000000001 Q660.4,115.24000000000001 664.4,115.24000000000001 H680.4 Q684.4,115.24000000000001 684.4,119.24000000000001 V344 Z" fill="#eb6834"><title>p95, 100 users: 86 ms</title></path>
+<text x="672.4" y="111.24000000000001" font-size="10" fill="#1f2328" text-anchor="middle">86</text>
+<path d="M686.4,344 V84.66000000000003 Q686.4,80.66000000000003 690.4,80.66000000000003 H706.4 Q710.4,80.66000000000003 710.4,84.66000000000003 V344 Z" fill="#1baf7a"><title>p99, 100 users: 99 ms</title></path>
+<text x="698.4" y="76.66000000000003" font-size="10" fill="#1f2328" text-anchor="middle">99</text>
+<text x="672.4" y="362" font-size="12" fill="#1f2328" text-anchor="middle">100 users</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>

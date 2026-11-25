@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Redis cache: property service vs through the gateway (50 users)">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">Redis cache: property service vs through the gateway (50 users)</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">Cache gives 3.3x at the service; through the gateway the single Node.js gateway is the ceiling</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">2500</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">5000</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">requests per second</text>
+<path d="M164.66666666666669,344 V276.03104 Q164.66666666666669,272.03104 168.66666666666669,272.03104 H184.66666666666669 Q188.66666666666669,272.03104 188.66666666666669,276.03104 V344 Z" fill="#2a78d6"><title>Throughput, Service, no cache: 1352.8 req/s</title></path>
+<text x="176.66666666666669" y="268.03104" font-size="10" fill="#1f2328" text-anchor="middle">1353</text>
+<text x="176.66666666666669" y="362" font-size="12" fill="#1f2328" text-anchor="middle">Service, no cache</text>
+<path d="M390.00000000000006,344 V107.5626 Q390.00000000000006,103.5626 394.00000000000006,103.5626 H410.00000000000006 Q414.00000000000006,103.5626 414.00000000000006,107.5626 V344 Z" fill="#2a78d6"><title>Throughput, Service, cache: 4519.5 req/s</title></path>
+<text x="402.00000000000006" y="99.5626" font-size="10" fill="#1f2328" text-anchor="middle">4520</text>
+<text x="402.00000000000006" y="362" font-size="12" fill="#1f2328" text-anchor="middle">Service, cache</text>
+<path d="M615.3333333333334,344 V302.69488 Q615.3333333333334,298.69488 619.3333333333334,298.69488 H635.3333333333334 Q639.3333333333334,298.69488 639.3333333333334,302.69488 V344 Z" fill="#2a78d6"><title>Throughput, Gateway, cache: 851.6 req/s</title></path>
+<text x="627.3333333333334" y="294.69488" font-size="10" fill="#1f2328" text-anchor="middle">852</text>
+<text x="627.3333333333334" y="362" font-size="12" fill="#1f2328" text-anchor="middle">Gateway, cache</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>

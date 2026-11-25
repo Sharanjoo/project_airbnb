@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Booking request: API response and asynchronous pipeline (p95)">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">Booking request: API response and asynchronous pipeline (p95)</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">Pipeline = publish to Kafka -> booking worker -> row in MySQL, one clock. nothing lost at any rate</text>
+<rect x="64" y="56" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="79" y="65" font-size="12" fill="#1f2328">API response p95</text>
+<rect x="195.6" y="56" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="210.6" y="65" font-size="12" fill="#1f2328">Pipeline p95</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">10</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">20</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">milliseconds</text>
+<path d="M151.66666666666669,344 V161.8 Q151.66666666666669,157.8 155.66666666666669,157.8 H171.66666666666669 Q175.66666666666669,157.8 175.66666666666669,161.8 V344 Z" fill="#2a78d6"><title>API response p95, 10 bookings/s: 14 ms</title></path>
+<text x="163.66666666666669" y="153.8" font-size="10" fill="#1f2328" text-anchor="middle">14</text>
+<path d="M177.66666666666669,344 V228.3 Q177.66666666666669,224.3 181.66666666666669,224.3 H197.66666666666669 Q201.66666666666669,224.3 201.66666666666669,228.3 V344 Z" fill="#eb6834"><title>Pipeline p95, 10 bookings/s: 9 ms</title></path>
+<text x="189.66666666666669" y="220.3" font-size="10" fill="#1f2328" text-anchor="middle">9</text>
+<text x="176.66666666666669" y="362" font-size="12" fill="#1f2328" text-anchor="middle">10 bookings/s</text>
+<path d="M377.00000000000006,344 V268.2 Q377.00000000000006,264.2 381.00000000000006,264.2 H397.00000000000006 Q401.00000000000006,264.2 401.00000000000006,268.2 V344 Z" fill="#2a78d6"><title>API response p95, 50 bookings/s: 6 ms</title></path>
+<text x="389.00000000000006" y="260.2" font-size="10" fill="#1f2328" text-anchor="middle">6</text>
+<path d="M403.00000000000006,344 V281.5 Q403.00000000000006,277.5 407.00000000000006,277.5 H423.00000000000006 Q427.00000000000006,277.5 427.00000000000006,281.5 V344 Z" fill="#eb6834"><title>Pipeline p95, 50 bookings/s: 5 ms</title></path>
+<text x="415.00000000000006" y="273.5" font-size="10" fill="#1f2328" text-anchor="middle">5</text>
+<text x="402.00000000000006" y="362" font-size="12" fill="#1f2328" text-anchor="middle">50 bookings/s</text>
+<path d="M602.3333333333334,344 V241.6 Q602.3333333333334,237.6 606.3333333333334,237.6 H622.3333333333334 Q626.3333333333334,237.6 626.3333333333334,241.6 V344 Z" fill="#2a78d6"><title>API response p95, 200 bookings/s: 8 ms</title></path>
+<text x="614.3333333333334" y="233.6" font-size="10" fill="#1f2328" text-anchor="middle">8</text>
+<path d="M628.3333333333334,344 V175.1 Q628.3333333333334,171.1 632.3333333333334,171.1 H648.3333333333334 Q652.3333333333334,171.1 652.3333333333334,175.1 V344 Z" fill="#eb6834"><title>Pipeline p95, 200 bookings/s: 13 ms</title></path>
+<text x="640.3333333333334" y="167.1" font-size="10" fill="#1f2328" text-anchor="middle">13</text>
+<text x="627.3333333333334" y="362" font-size="12" fill="#1f2328" text-anchor="middle">200 bookings/s</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>
