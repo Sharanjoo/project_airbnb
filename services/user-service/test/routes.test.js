@@ -3,7 +3,12 @@ process.env.NODE_ENV = 'test';
 // Keep this list in sync with the doc; add behaviour tests next to it as you implement.
 const test = require('node:test');
 const assert = require('node:assert');
+const { getMysql } = require('@airbnb/common');
 const app = require('../src/index');
+
+// POST /guests/search with an admin and an empty body is a valid request, so it
+// reaches MySQL (or fails to connect, in CI). Close the pool so the process can exit.
+test.after(() => getMysql().end().catch(() => {}));
 
 const ENDPOINTS = [
   ['POST', '/guests/create'],

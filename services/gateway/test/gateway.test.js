@@ -4,6 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
 const jwt = require('jsonwebtoken');
+// Account-status stub: every account exists (revocation is covered in accounts.test.js)
+const ALL_ACTIVE = { check: async () => 'active' };
 
 // Fake upstream that echoes the identity headers it received
 const upstream = http.createServer((req, res) => {
@@ -17,7 +19,7 @@ test('gateway routes, authenticates and propagates identity + trace id', async (
   process.env.PROPERTY_SERVICE_URL = process.env.BOOKING_SERVICE_URL;
   delete require.cache[require.resolve('../src/index')];
   const { createGateway } = require('../src/index');
-  const gw = createGateway().listen(0);
+  const gw = createGateway({ accounts: ALL_ACTIVE }).listen(0);
   const base = `http://127.0.0.1:${gw.address().port}`;
   t.after(() => { gw.close(); upstream.close(); });
 

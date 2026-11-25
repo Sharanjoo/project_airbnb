@@ -3,19 +3,25 @@
 POST /ai/requests is implemented as the reference: create task_id/trace_id/plan_id,
 publish to ai.requests, return 202. Agents and the Chair are separate Kafka
 consumers (agents/), never called over HTTP from here."""
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from datetime import date
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, Header, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pymongo.errors import PyMongoError
+from starlette.exceptions import HTTPException
 
 from . import config
 from .bus import Bus
 from .envelope import create_envelope
-from .store import InMemoryTaskStore
+from .store import DuplicateTrace, InMemoryTaskStore, MongoTaskStore
+
+log = logging.getLogger("ai-service")
 
 
 class ApiError(Exception):
@@ -25,10 +31,12 @@ class ApiError(Exception):
 
 
 class StructuredFilters(BaseModel):
-    city: str | None = None
+    model_config = {"extra": "forbid"}
+    city: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)] | None = None
     guests: int | None = Field(default=None, ge=1, le=16)
-    price_max: float | None = Field(default=None, ge=0)
-    amenities: list[str] = []
+    price_max: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    amenities: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]] = Field(
+        default=[], max_length=20)
     min_rating: float | None = Field(default=None, ge=0, le=5)
 
 
@@ -38,12 +46,13 @@ class AiRequest(BaseModel):
     structured: StructuredFilters | None = None
     check_in: date | None = None
     check_out: date | None = None
-    property_pool_ref: str = "active-pool-v1"
-    config_version: str | None = None
+    property_pool_ref: Literal["active-pool-v1"] = "active-pool-v1"
+    config_version: str | None = Field(default=None, min_length=1, max_length=60)
 
     @model_validator(mode="after")
     def check(self):
-        if not self.request_text and not self.structured:
+        has_filters = self.structured and any(v not in (None, []) for v in self.structured.model_dump().values())
+        if not self.request_text and not has_filters:
             raise ValueError("request_text or structured is required")
         if self.check_in and self.check_out and self.check_out <= self.check_in:
             raise ValueError("check_out must be after check_in")
@@ -51,14 +60,16 @@ class AiRequest(BaseModel):
 
 
 bus = Bus()
-store = InMemoryTaskStore()
+store = MongoTaskStore(config.MONGO_URL, config.MONGO_DB) if config.MONGO_ENABLED else InMemoryTaskStore()
 
 
 @asynccontextmanager
 async def lifespan(_app):
+    await store.start()
     await bus.start()
     yield
     await bus.stop()
+    await store.stop()
 
 
 app = FastAPI(title="AI Agent Service", version="0.1.0", lifespan=lifespan)
@@ -90,12 +101,50 @@ async def validation_handler(request: Request, exc: RequestValidationError):
     return _error(request, 400, "VALIDATION_ERROR", "Request body is invalid.", details)
 
 
+@app.exception_handler(HTTPException)
+async def http_handler(request: Request, exc: HTTPException):
+    code = "NOT_FOUND" if exc.status_code == 404 else "VALIDATION_ERROR" if exc.status_code < 500 else "INTERNAL_ERROR"
+    return _error(request, exc.status_code, code, str(exc.detail), retryable=exc.status_code >= 500)
+
+
+@app.exception_handler(PyMongoError)
+async def mongo_handler(request: Request, exc: PyMongoError):
+    log.error("mongo error trace_id=%s: %s", request.state.trace_id, exc)
+    return _error(request, 503, "DEPENDENCY_UNAVAILABLE", "MongoDB is unavailable.", retryable=True)
+
+
+@app.exception_handler(Exception)
+async def unhandled_handler(request: Request, exc: Exception):
+    return _error(request, 500, "INTERNAL_ERROR", "Unexpected error.", retryable=True)
+
+
 def _user(x_user_id: str | None, x_user_role: str | None, *roles: str) -> dict:
     if not x_user_id:
         raise ApiError(401, "UNAUTHENTICATED", "Missing or invalid token.")
     if roles and x_user_role not in roles and x_user_role != "admin":
         raise ApiError(403, "FORBIDDEN", "Not allowed.")
     return {"id": x_user_id, "role": x_user_role}
+
+
+async def _owned_task(task_id: str, x_user_id: str | None, x_user_role: str | None) -> dict:
+    """Load a task for its owner or an admin: 401, then 404, then 403 (API doc §9)."""
+    user = _user(x_user_id, x_user_role)
+    task = await store.get(task_id)
+    if not task:
+        raise ApiError(404, "NOT_FOUND", "Task not found.")
+    if user["role"] != "admin" and task["user_id"] != user["id"]:
+        raise ApiError(403, "FORBIDDEN", "Not allowed.")
+    return task
+
+
+def _require_uuid_trace(trace_id: str):
+    try:
+        ok = str(uuid.UUID(trace_id)) == trace_id.lower()
+    except ValueError:
+        ok = False
+    if not ok:
+        raise ApiError(400, "VALIDATION_ERROR", "Request is invalid.",
+                       [{"field": "X-Trace-Id", "issue": "must be a UUID"}])
 
 
 def not_implemented(endpoint: str):
@@ -112,16 +161,21 @@ async def create_request(body: AiRequest, request: Request,
                          x_user_id: str | None = Header(default=None),
                          x_user_role: str | None = Header(default=None)):
     user = _user(x_user_id, x_user_role, "guest", "host")
+    trace_id = request.state.trace_id
+    _require_uuid_trace(trace_id)
     if await store.count_open_for_user(user["id"]) >= config.MAX_OPEN_TASKS_PER_USER:
         raise ApiError(429, "RATE_LIMITED", "Too many open AI tasks.", retryable=True)
 
-    trace_id = request.state.trace_id
     task_id = f"tsk_{uuid.uuid4().hex}"
     plan_id = f"pln_{uuid.uuid4().hex}"
     version = body.config_version or config.CONFIG_VERSION
 
-    await store.create({"task_id": task_id, "trace_id": trace_id, "plan_id": plan_id, "user_id": user["id"],
-                        "status": "QUEUED", "config_version": version, "request": body.model_dump(mode="json")})
+    try:
+        await store.create({"task_id": task_id, "trace_id": trace_id, "plan_id": plan_id, "user_id": user["id"],
+                            "config_version": version, "request": body.model_dump(mode="json")})
+    except DuplicateTrace as exc:
+        raise ApiError(400, "VALIDATION_ERROR", "Request is invalid.",
+                       [{"field": "X-Trace-Id", "issue": "already used by another AI task"}]) from exc
     env = create_envelope(
         event_type="ai.requests", trace_id=trace_id, actor_id=user["id"], actor_type=user["role"],
         entity_type="ai_task", entity_id=task_id, idempotency_key=task_id,
@@ -130,6 +184,9 @@ async def create_request(body: AiRequest, request: Request,
     try:
         await bus.publish("ai.requests", env)
     except Exception as exc:  # noqa: BLE001
+        # Never leave it QUEUED: that would hold one of the user's open-task slots forever.
+        # If the send timed out but did arrive, agents drop it because the task is closed.
+        await store.transition(task_id, "FAILED", {"errors": [{"code": "DEPENDENCY_UNAVAILABLE", "message": "Kafka is unavailable."}]})
         raise ApiError(503, "DEPENDENCY_UNAVAILABLE", "Kafka is unavailable.", retryable=True) from exc
 
     return {"data": {"task_id": task_id, "trace_id": trace_id, "plan_id": plan_id, "status": "QUEUED",
@@ -137,23 +194,27 @@ async def create_request(body: AiRequest, request: Request,
 
 
 @app.get("/ai/tasks/{task_id}")
-async def get_task(task_id: str, request: Request):
-    task = await store.get(task_id)
-    if not task:
-        raise ApiError(404, "NOT_FOUND", "Task not found.")
-    # TODO (slice 5): owner check; include plan steps, agents[], round, errors[]
-    return {"data": {k: task[k] for k in ("task_id", "trace_id", "plan_id", "status", "created_at", "updated_at")},
-            "trace_id": request.state.trace_id}
+async def get_task(task_id: str, request: Request,
+                   x_user_id: str | None = Header(default=None),
+                   x_user_role: str | None = Header(default=None)):
+    task = await _owned_task(task_id, x_user_id, x_user_role)
+    fields = ("task_id", "trace_id", "plan_id", "status", "round", "plan", "agents",
+              "started_at", "created_at", "updated_at", "errors")
+    return {"data": {k: task[k] for k in fields}, "trace_id": request.state.trace_id}
 
 
 @app.get("/ai/results/{task_id}")
-async def get_result(task_id: str):
-    task = await store.get(task_id)
-    if not task:
-        raise ApiError(404, "NOT_FOUND", "Task not found.")
-    if "result" not in task:
-        raise ApiError(409, "NOT_READY", "The Chair has not published a result yet.", retryable=True)
-    return {"data": task["result"]}
+async def get_result(task_id: str, request: Request,
+                     x_user_id: str | None = Header(default=None),
+                     x_user_role: str | None = Header(default=None)):
+    task = await _owned_task(task_id, x_user_id, x_user_role)
+    if not task.get("result"):
+        # A failed task will never have a result, so polling again cannot help.
+        dead = task["status"] in ("FAILED", "TIMED_OUT")
+        raise ApiError(409, "NOT_READY",
+                       f"The task ended {task['status']} without a result." if dead
+                       else "The Chair has not published a result yet.", retryable=not dead)
+    return {"data": task["result"], "trace_id": request.state.trace_id}
 
 
 @app.post("/ai/tasks/{task_id}/approve")
@@ -162,8 +223,14 @@ async def approve(task_id: str):
 
 
 @app.get("/ai/tasks/{task_id}/debate")
-async def debate(task_id: str):
-    not_implemented("GET /ai/tasks/{task_id}/debate")
+async def debate(task_id: str, request: Request,
+                 x_user_id: str | None = Header(default=None),
+                 x_user_role: str | None = Header(default=None)):
+    task = await _owned_task(task_id, x_user_id, x_user_role)
+    messages = await store.list_messages(task["trace_id"])
+    return {"data": {"trace_id": task["trace_id"],
+                     "messages": [{k: m[k] for k in ("round", "agent", "event_id", "payload")} for m in messages]},
+            "trace_id": request.state.trace_id}
 
 
 @app.post("/ai/feedback")

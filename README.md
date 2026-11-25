@@ -35,10 +35,15 @@ Then either run the services you are working on locally:
 
 ```bash
 npm run dev:gateway
+npm run dev:user
+npm run dev:user-worker      # guest booking_count / saved_properties_count from Kafka
 npm run dev:booking
 npm run dev:booking-worker
 npm run dev:property         # property API
 npm run dev:property-worker  # cache invalidation, ratings, Mongo read model
+npm run dev:messaging        # messaging API (threads, messages)
+npm run dev:messaging-worker # booking.requested -> conversation + first message
+npm run dev:notify           # WebSocket pushes (live Messages page)
 npm run dev:client           # http://localhost:5173
 ```
 
@@ -47,6 +52,7 @@ or run everything in Docker:
 ```bash
 docker compose up -d --build
 npm run smoke                # health checks + one booking through Kafka
+npm run smoke:auth           # sign up, log in, list a property and book with real tokens
 ```
 
 Kafka UI is at http://localhost:8090 for topics, messages, consumer groups and lag.
@@ -126,6 +132,7 @@ npm test                                   # all Node unit tests
 npm test -w services/booking-service       # one service
 npm run test:db -w services/booking-service  # double-booking + duplicate-event test, needs MySQL running
 npm run test:db -w services/property-service # property SQL, concurrent updates, cache invalidation; needs MySQL + Redis
+npm run test:db -w services/user-service   # sign-up race, login, seed accounts, user foreign keys; needs MySQL
 cd services/ai-service && pip install -r requirements.txt && pytest
 ```
 
@@ -138,18 +145,21 @@ Working and tested:
 
 - Shared envelope validation (Node and Python use the same schema file)
 - Kafka consumer logic: malformed or invalid messages go to DLQ, transient errors retry with backoff, permanent errors skip retries
-- Gateway: JWT, spoofed identity headers dropped, trace id, 503 when a service is down
+- Gateway: JWT (HS256 only), spoofed identity headers dropped, trace id, 503 when a service is down; a stale token on a public route continues anonymously, protected routes still answer 401; rate limit keyed on the verified user or IP
+- Users and auth (Slice 1, phase 1): guest and host sign-up (bcrypt, 409 on duplicate email, publishes `user.created`), login returning `{ token, expires_at, user_id, role }`, Login page with session handling and role-aware menu. Admin comes only from `hosts.access_level = 'admin'` set in the database
+- User profiles (Slice 1, phase 2): guests get / update / soft-delete and admin search, hosts get (public view for others) / update; owner-or-admin checks, optimistic `version` (409 `VERSION_CONFLICT`), `user.updated` with changed field names only. `user-worker` (group `user-cg`): `booking.confirmed` adds 1 to the guest's `booking_count` once per reservation (claimed in `processed_events`), `property.saved` recomputes `saved_properties_count` from `saved_properties`. **`booking_count` is the guest's lifetime number of unique confirmed reservations: it never goes down, and cancelling a confirmed booking does not reduce it.** `saved_properties_count` is the current number of saved listings and drops on unsave. Deleting an account stops its outstanding tokens at the gateway (MySQL `is_deleted` is the source of truth, a Redis marker makes it immediate): [docs/slice1-account-deletion.md](docs/slice1-account-deletion.md)
+- Messaging (Slice 1, phase 3): all six endpoints on MongoDB, participant-only access (non-participants get 404, admins included), one thread per guest/host/listing, a booking request opens the thread with the guest's note as the first message (`messaging-worker`, group `messaging-cg`, safe to redeliver or replay), send dedupe on `client_message_id`, cursor-paginated history, read status, `message.sent` with ids only (never message text), Messages page with live updates. `npm run smoke:messaging` checks it end to end. Design, API shapes and the notification-gateway fix needed in slice 4: [docs/slice1-messaging.md](docs/slice1-messaging.md)
 - Properties (Slice 2): create, get, update, delete, save, search with two strategies and a Redis cache, availability with conflict detection, property worker, client search/detail/host pages
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)
 - Notification gateway WebSocket push by channel
-- AI API: `POST /ai/requests` publishes `ai.requests` with the same trace id; harness checks for agent output, topic permissions and disagreement score
+- AI service (Slice 5, in progress): MongoDB task store, owner-checked task/result/debate reads, request parser (optional Ollama via `LLM_PROVIDER`), and matching, risk and fairness round-0 opinions over Kafka with harness checks. The Chair, stream, approval and client page are not built yet
 
 Stubs that return `501 NOT_IMPLEMENTED` until their owner fills them in: every
-other endpoint, the agent logic, and all client pages.
+other endpoint, and all client pages.
 
 Known gaps:
 
 - The Docker images for the services have not been built yet. Run `docker compose up --build` once and fix anything that fails before splitting work.
 - Consumer retries are in-process. The API doc also mentions `<topic>.retry.N` topics; Slice 3 decides whether to add them.
-- The AI task store is in memory; Slice 5 moves it to MongoDB.
+- AI tests run offline; set `TEST_MONGO_URL=mongodb://localhost:27018` to also run the MongoDB store tests.
