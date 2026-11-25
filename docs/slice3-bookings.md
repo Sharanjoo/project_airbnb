@@ -26,7 +26,9 @@ section 13.13 of the spec asks.
 ## How a booking moves
 
 A guest request becomes REQUESTED when the worker has claimed the nights, or
-REJECTED if the nights are taken or the host blocked them. The host then
+REJECTED if the nights are taken (DATE_CONFLICT), the host blocked them
+(DATE_CONFLICT), or the guest's account was deleted after the API accepted the
+request (GUEST_DELETED). The host then
 approves (CONFIRMED) or declines (DECLINED). Either side can cancel a REQUESTED
 or CONFIRMED booking (CANCELLED). A request nobody answers for 24 hours becomes
 EXPIRED. A CONFIRMED stay becomes COMPLETED once check-out time has passed.
@@ -142,6 +144,23 @@ The doc comes first. These are the places it says nothing:
 - Confirming a booking publishes a simulated `payment.completed`.
 - `byGuest` also returns `property_title` and `city` so the trips page can show
   names without counting a listing view.
+- A request from a guest whose account was deleted in the meantime is rejected
+  with GUEST_DELETED. The worker reads the guest's row with a shared lock, and the
+  user service takes the exclusive lock on that row when it deletes, so a delete
+  and a new booking cannot pass each other. A guest id that does not exist at all
+  is a permanent error and goes to the dead-letter topic.
+
+## Database change
+
+`idempotency_keys` has one extra column, `actor_id VARCHAR(40) NULL`, which stores
+who made the request. It is how a booking that is still pending stays private to
+the guest who asked. New databases get it from `infra/mysql/init/001_schema.sql`.
+A database created before this change is upgraded by the booking services the
+first time they need it, so nobody has to reset anything. To add it by hand:
+
+```sql
+ALTER TABLE idempotency_keys ADD COLUMN actor_id VARCHAR(40) NULL;
+```
 
 ## Limits
 
@@ -150,8 +169,9 @@ The doc comes first. These are the places it says nothing:
 - Retries inside the consumer run in memory (3 tries, then the dead-letter
   topic), which is what section 10 of the API doc describes.
 - The review form on My trips depends on the review service.
-- Hosts see new requests within 15 seconds until the notification gateway also
-  pushes `booking.requested`.
+- New requests reach the host's page through the notification gateway, which
+  pushes `booking.requested` to the host. The page also checks every 15 seconds in
+  case a push is missed.
 
 ## Run it
 
