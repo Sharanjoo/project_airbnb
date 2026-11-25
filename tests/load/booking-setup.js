@@ -40,8 +40,14 @@ async function cleanup(sql) {
   const threads = await db.collection('threads').find({ guest_id: re }, { projection: { _id: 1 } }).toArray();
   const msgs = await db.collection('messages').deleteMany({ thread_id: { $in: threads.map((t) => t._id) } });
   const th = await db.collection('threads').deleteMany({ guest_id: re });
-  const ev = await db.collection('events').deleteMany({ $or: [{ actor_id: re }, { 'payload.guest_id': re }] });
-  console.log(`cleanup: ${res[0].n} reservations, ${g.affectedRows} guests, ${th.deletedCount} threads, ${msgs.deletedCount} messages, ${ev.deletedCount} events`);
+  // AI tasks from the AI timing test (ai-timings.js) and their debate records
+  const tasks = await db.collection('ai_tasks').find({ user_id: re }, { projection: { trace_id: 1 } }).toArray();
+  const traces = tasks.map((t) => t.trace_id);
+  await db.collection('debate_messages').deleteMany({ trace_id: { $in: traces } });
+  await db.collection('feedback').deleteMany({ trace_id: { $in: traces } });
+  const ai = await db.collection('ai_tasks').deleteMany({ user_id: re });
+  const ev = await db.collection('events').deleteMany({ $or: [{ actor_id: re }, { 'payload.guest_id': re }, { 'payload.user_id': re }, { trace_id: { $in: traces } }] });
+  console.log(`cleanup: ${res[0].n} reservations, ${g.affectedRows} guests, ${th.deletedCount} threads, ${msgs.deletedCount} messages, ${ev.deletedCount} events, ${ai.deletedCount} AI tasks`);
 }
 
 async function setup(sql) {
