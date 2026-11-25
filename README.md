@@ -53,6 +53,7 @@ or run everything in Docker:
 docker compose up -d --build
 npm run smoke                # health checks + one booking through Kafka
 npm run smoke:auth           # sign up, log in, list a property and book with real tokens
+npm run smoke:ai             # AI debate end to end (needs npm run gen:properties); add -- --timeout to stop one agent
 ```
 
 Kafka UI is at http://localhost:8090 for topics, messages, consumer groups and lag.
@@ -153,7 +154,7 @@ Working and tested:
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)
 - Notification gateway WebSocket push by channel
-- AI service (Slice 5, in progress): MongoDB task store, request parser (optional Ollama via `LLM_PROVIDER`), matching / risk / fairness agents, Chair with challenges, votes, decision rule, timeouts and `ai.results`, live WebSocket stream, approval, feedback and versions. The client page and the 50-request benchmark are not built yet
+- AI service (Slice 5, in progress): MongoDB task store, request parser (optional Ollama via `LLM_PROVIDER`), matching / risk / fairness agents, Chair with challenges, votes, decision rule, timeouts and `ai.results`, live WebSocket stream, approval, feedback and versions, AI match page. `npm run smoke:ai` checks it end to end. The 50-request benchmark is not built yet
 
 Stubs that return `501 NOT_IMPLEMENTED` until their owner fills them in: every
 other endpoint, and all client pages.
@@ -162,4 +163,5 @@ Known gaps:
 
 - The Docker images for the services have not been built yet. Run `docker compose up --build` once and fix anything that fails before splitting work.
 - Consumer retries are in-process. The API doc also mentions `<topic>.retry.N` topics; Slice 3 decides whether to add them.
+- AI match ranks the fixed 200-property pool file, so run `npm run gen:properties` first: without those rows in MySQL, listing links and booking answer 404 and availability stays unverified.
 - AI tests run offline; set `TEST_MONGO_URL=mongodb://localhost:27018` to also run the MongoDB store tests.

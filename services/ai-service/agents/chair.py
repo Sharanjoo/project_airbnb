@@ -17,10 +17,14 @@ from app.store import ANALYSIS_AGENTS, OPEN_STATUSES
 
 from .base import BaseAgent, PermanentError
 from .debate import (MIN_AGENTS, advance_plan, build_result, build_round1, combined_ranking, count_votes, decide, known_refs,
-                     make_plan, scores_by_property, top3)
+                     make_plan, scores_by_property, skip_step, top3)
 from .harness import check_opinion, check_vote
 
 log = logging.getLogger("agents")
+
+# result["availability"] when plan step 6 did not really check the chosen home
+SKIPPED = {"no_dates": "No dates given, so availability was not checked.",
+           "unverified": "Availability could not be verified; the booking request will check it."}
 
 
 class HarnessRejected(PermanentError):
@@ -174,7 +178,8 @@ class ChairAgent(BaseAgent):
             return True
         parsed = task["parsed_request"]
         await self.store.add_frame(task["task_id"], "parsed", {
-            "type": "parser.completed", "requirements": parsed["requirements"], "provider": parsed["provider"], "warnings": parsed["warnings"]})
+            "type": "parser.completed", "requirements": parsed["requirements"], "provider": parsed["provider"], "warnings": parsed["warnings"],
+            "fallback": parsed.get("fallback"), "llm_fields": parsed.get("llm_fields") or []})
         return await self.move(task, "ROUND_0", round=0, timings={**task["timings"], "round0_started": utc_now_iso()},
                                deadlines={**task["deadlines"], "round0": _in(config.ROUND0_DEADLINE_S)})
 
@@ -254,6 +259,8 @@ class ChairAgent(BaseAgent):
         # Same idempotency key if this runs again after a crash, so consumers apply it once.
         await self.publish("ai.results", trace_id=task["trace_id"], task_id=task["task_id"], payload=result, idem=f"{task['task_id']}:result")
         await self.store.add_frame(task["task_id"], "verdict", {"type": "verdict", **result})
+        if result.get("availability") in SKIPPED:
+            task = {**task, "plan": skip_step(task["plan"], 6, SKIPPED[result["availability"]])}
         await self.move(task, "AWAITING_APPROVAL")
         return False
 
@@ -269,30 +276,30 @@ class ChairAgent(BaseAgent):
         limitations += task["parsed_request"]["warnings"]
         if not any(not o["failures"] for o in r1["options"]):
             limitations.append("No property meets every stated requirement; this is the closest match.")
-        chosen, unavailable = await self.pick_available(task, decision["property_id"], opinions, limitations)
+        chosen, unavailable, availability = await self.pick_available(task, decision["property_id"], opinions, limitations)
         if chosen is None:
             return None
-        return build_result(task, opinions, votes, decision, counts, ballots, limitations, chosen, unavailable, self.pool, utc_now_iso())
+        return build_result(task, opinions, votes, decision, counts, ballots, limitations, chosen, unavailable, availability, self.pool, utc_now_iso())
 
-    async def pick_available(self, task, winner, opinions, limitations) -> tuple[str | None, list[str]]:
+    async def pick_available(self, task, winner, opinions, limitations) -> tuple[str | None, list[str], str]:
         """Plan step 6. The first of the winner and the next best four that is not
         known to be taken."""
         req = task["parsed_request"]["requirements"]
         if not (req["check_in"] and req["check_out"]):
-            limitations.append("No dates given, so availability was not checked.")
-            return winner, []
+            limitations.append(SKIPPED["no_dates"])
+            return winner, [], "no_dates"
         order = [winner] + [p for p in combined_ranking(scores_by_property(opinions)) if p != winner]
         taken: list[str] = []
         for pid in order[:5]:
             free = await self.availability(pid, req["check_in"], req["check_out"], task["user_id"], task["trace_id"])
             if free is not False:
                 if free is None:
-                    limitations.append("Availability could not be verified; the booking request will check it.")
+                    limitations.append(SKIPPED["unverified"])
                 if taken:
                     limitations.append(f"{winner} won the vote but is not free for these dates.")
-                return pid, taken
+                return pid, taken, "unverified" if free is None else "verified"
             taken.append(pid)
-        return None, taken
+        return None, taken, "unavailable"
 
     # ----------------------------------------------------------- deadlines
     async def sweep(self):

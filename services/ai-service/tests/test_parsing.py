@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from agents.parsing import ParseError, parse_request
+from agents.parsing import ParseError, parse_request, parse_text
 from app.llm import LLMError, OllamaProvider, get_provider
 from app import config
 from app.pool import load_pool
@@ -158,3 +158,18 @@ def test_ollama_unreachable_is_an_llm_error(monkeypatch):
     monkeypatch.setattr(config, "LLM_BASE_URL", "http://127.0.0.1:1")
     with pytest.raises(LLMError):
         asyncio.run(OllamaProvider().complete_json("s", "u", {}))
+
+
+@pytest.mark.parametrize("text", ["a stay in Napa below 400 dollars a night", "Napa, $250 a night", "Napa under $250/night", "Napa 90 usd per night"])
+def test_a_price_per_night_is_not_a_one_night_stay(text):
+    assert parse_text(text.lower(), load_pool(), TODAY)[0].get("nights") is None
+
+
+def test_one_night_is_still_understood():
+    assert parse_text("one night in napa", load_pool(), TODAY)[0]["nights"] == 1
+    assert parse_text("napa for a night, under $250 a night", load_pool(), TODAY)[0]["nights"] == 1
+
+
+@pytest.mark.parametrize("text", ["nothing over 200", "nothing above $200", "not more than 200 dollars", "no more than $200"])
+def test_negated_price_limits(text):
+    assert parse_text(f"oakland, {text}", load_pool(), TODAY)[0]["price_max"] == 200

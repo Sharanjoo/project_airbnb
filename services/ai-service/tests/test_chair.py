@@ -111,7 +111,10 @@ def test_full_debate(run):
         assert POOL.by_id[r["ranked"][0]]["city"] == "San Jose" and sum(r["decision"]["votes"].values()) == 3
         assert r["rejected_alternative"]["property_id"] != r["ranked"][0] and r["explanation"]
         assert all(v is not None for v in r["timings_ms"].values())
-        assert {s["status"] for s in task["plan"]["steps"]} == {"done"}
+        # These requests have no dates, so step 6 must not claim it was done.
+        assert r["availability"] == "no_dates"
+        assert [s["status"] for s in task["plan"]["steps"]] == ["done"] * 5 + ["skipped", "done"]
+        assert "No dates" in task["plan"]["steps"][5]["note"]
         assert {a["status"] for a in task["agents"]} == {"published"}
         assert [m["round"] for m in await store.list_messages(task["trace_id"])] == [0, 0, 0, 1, 2, 2, 2]
         ty = types(task)
@@ -354,6 +357,8 @@ def test_unavailable_winner_is_replaced(run):
         await bus.drain()
         r = (await store.get(tid))["result"]
         assert r["recommended"]["property_id"] == seen[1] and seen[0] not in r["ranked"]
+        assert r["availability"] == "verified"
+        assert {s["status"] for s in (await store.get(tid))["plan"]["steps"]} == {"done"}
         assert any("not free" in x for x in r["limitations"]) and r["rejected_alternative"]["property_id"] != seen[0]
     run(t)
 
@@ -375,7 +380,9 @@ def test_unchecked_availability_is_a_limitation(run):
         bus = Bus(store)
         tid = await bus.request(check_in="2027-01-05", check_out="2027-01-07")
         await bus.drain()
-        assert any("could not be verified" in x for x in (await store.get(tid))["result"]["limitations"])
+        task = await store.get(tid)
+        assert any("could not be verified" in x for x in task["result"]["limitations"])
+        assert task["result"]["availability"] == "unverified" and task["plan"]["steps"][5]["status"] == "skipped"
     run(t)
 
 

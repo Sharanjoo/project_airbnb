@@ -43,11 +43,18 @@ def advance_plan(plan: dict, status: str, note: str | None = None) -> dict:
     else:
         done, running = PROGRESS[status]
         for s in steps:
-            if s["step_no"] <= done and s["status"] != "done":
+            if s["step_no"] <= done and s["status"] not in ("done", "skipped"):
                 s.update(status="done", started_at=s["started_at"] or now, ended_at=now)
             elif s["step_no"] == running and s["status"] == "pending":
                 s.update(status="running", started_at=now)
     return {**plan, "steps": steps}
+
+
+def skip_step(plan: dict, step_no: int, note: str) -> dict:
+    """The plan with one step marked as not carried out, and why."""
+    now = utc_now_iso()
+    return {**plan, "steps": [{**s, "status": "skipped", "ended_at": now, "note": note} if s["step_no"] == step_no else s
+                              for s in plan["steps"]]}
 
 
 # ---------------------------------------------------------------- round 1
@@ -248,7 +255,7 @@ def explain(result: dict, pool: PropertyPool) -> str:
 
 
 def build_result(task: dict, opinions: dict[str, dict], votes: dict[str, dict], decision: dict, counts: dict, ballots: dict,
-                 limitations: list[str], chosen: str, unavailable: list[str], pool: PropertyPool, now: str) -> dict:
+                 limitations: list[str], chosen: str, unavailable: list[str], availability: str, pool: PropertyPool, now: str) -> dict:
     """The §9 result body plus user_id, plan_id and debate details. Routing note: no
     top-level guest_id, host_id or property_id, which would change notification channels."""
     round1, req = task["round1"], task["parsed_request"]["requirements"]
@@ -280,7 +287,7 @@ def build_result(task: dict, opinions: dict[str, dict], votes: dict[str, dict], 
         "confidence": round(mean(o["confidence"] for o in opinions.values()) * (0.6 + 0.4 * agree), 2),
         "rationale": facts(p, req), "risks": risks, "rejected_alternative": alternative,
         "decision": {"mode": decision["mode"], "votes": counts}, "dissent": dissent, "limitations": limitations,
-        "explanation": "", "human_decision": None,
+        "availability": availability, "explanation": "", "human_decision": None,
         "parsed_request": req, "disagreement_score": round1["disagreement_score"], "challenges": round1["challenges"],
         "opinions": [{"agent": a, "top3": top3(o), "confidence": o["confidence"]} for a, o in opinions.items()],
         "vote_details": [{"agent": a, "choice": v["choice"], "chosen": v.get("property_id"), "reason": v["reason"]} for a, v in votes.items()],
