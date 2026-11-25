@@ -4,9 +4,10 @@ WORKDIR /app
 COPY services/ai-service/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY contracts /app/contracts
+COPY data/property-pool-200.json /app/data/property-pool-200.json
 COPY services/ai-service /app/ai-service
 WORKDIR /app/ai-service
-ENV CONTRACTS_DIR=/app/contracts PYTHONUNBUFFERED=1
+ENV CONTRACTS_DIR=/app/contracts PROPERTY_POOL_PATH=/app/data/property-pool-200.json PYTHONUNBUFFERED=1
 EXPOSE 8007
 # The same image runs the API (default) or one agent:
 #   command: ["python", "-m", "agents", "matching"]

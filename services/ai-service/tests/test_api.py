@@ -57,7 +57,7 @@ def test_no_user_is_401():
 def test_result_not_ready_is_409():
     with TestClient(app) as c:
         task_id = c.post("/ai/requests", headers=GUEST, json={"request_text": "beach house"}).json()["data"]["task_id"]
-        r = c.get(f"/ai/results/{task_id}")
+        r = c.get(f"/ai/results/{task_id}", headers=GUEST)
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "NOT_READY"
 

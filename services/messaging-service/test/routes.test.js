@@ -24,7 +24,9 @@ test('messaging-service endpoints from the API doc are all routed', async () => 
       const res = await fetch(base + path, {
         method,
         headers: { 'Content-Type': 'application/json', 'X-User-Id': 'admin_test', 'X-User-Role': 'admin' },
-        body: method === 'GET' ? undefined : '{}',
+        // An unknown field fails validation in every handler, so this proves the route
+        // exists without touching MongoDB (which unit tests must not need).
+        body: method === 'GET' ? undefined : '{"_probe":true}',
       });
       const body = await res.json();
       assert.ok(body.trace_id, `${method} ${path} response has trace_id`);
