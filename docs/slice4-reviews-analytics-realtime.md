@@ -1,0 +1,182 @@
+# Slice 4: reviews, analytics, real time and load tests
+
+Owner: Timothy. Covers the Review Service, the Analytics Service and its worker,
+the notification gateway, the guest, host and platform/AI dashboards, the
+real-time feature 13.4 and the performance report (spec §9). The integration
+area for the demo is real-time WebSocket updates. Each section gives the chosen
+design, a rejected alternative and the trade-off, as section 13.13 of the spec asks.
+
+## What is built
+
+- Review Service: `services/review-service/src/routes.js`, data access in
+  `src/models/review.js`. Reviews live in MongoDB `reviews`.
+- Notification gateway: `services/notification-gateway/src/index.js`. Kafka
+  events in, WebSocket frames out, with per-channel authorization.
+- Analytics API: `services/analytics-service/src/routes.js`. Queries in
+  `src/models/stats.js`, Kafka health (consumer lag, DLQ size) in
+  `src/models/kafkaStats.js`.
+- Analytics worker: `services/analytics-service/src/worker.js`, consumer group
+  `analytics-cg`. It stores every event from every domain topic in Mongo `events`.
+- Dashboards: `client/src/pages/guest/GuestDashboard.jsx`,
+  `client/src/pages/host/HostDashboard.jsx` and
+  `client/src/pages/admin/PlatformDashboard.jsx` (platform, AI and the trace view).
+  Shared chart pieces are in `client/src/components/charts.jsx`, with styles in
+  `dashboards.css` and data loading in `useAnalytics.js`.
+
+## Reviews
+
+Endpoints follow API doc §7: `create` (guest), `get` and `byProperty` (public),
+`respond` (owning host).
+
+- A guest can review only their own stay, and only once it is `COMPLETED`
+  (403 not theirs, 404 unknown, 422 not finished). `property_id`, `guest_id` and
+  `host_id` are copied from the reservation, never taken from the client.
+- One review per reservation: the unique index on `reservation_id` makes a second
+  create fail, answered as `409 ALREADY_REVIEWED`.
+- Public reads show `guest_first_name` only, never `guest_id` or `reservation_id`.
+- A host answers once; a second answer is `409 INVALID_STATE_TRANSITION`.
+
+**Rating.** Chosen: no review consumer of our own. `review.created` carries
+`property_id` and `rating`, and the property worker (slice 2) recomputes `rating`
+and `review_count` from the reviews collection. Rejected: incrementing a running
+average in the review service, which drifts when an event is redelivered. The
+trade-off is one recount per review, which is cheap at our size.
+
+**Kafka down during create.** Chosen: the review is saved with a
+`event_published: false` flag, the API answers 503 (retryable), and the client's
+retry finds the saved review and publishes it without creating a second one.
+Rejected: answering 201 anyway, which would leave the rating stale forever if the
+event never went out.
+
+## 13.4 Real-time booking state
+
+The flow: booking worker publishes `booking.confirmed` (or `availability.changed`)
+→ the notification gateway consumes it (`notify-cg`) → it pushes a frame to every
+socket subscribed to the right channel → the listing page (slice 2) reloads the
+calendar and shows "Your dates are no longer available". The frame carries
+`sent_at`, so the page shows the delivery latency ("update arrived in N ms").
+A stale booking cannot succeed anyway, because the booking worker's night claim
+rejects it with `DATE_CONFLICT` (slice 3).
+
+Channels: `user:<id>` (your own pushes), `property:<id>` (anyone viewing a
+listing) and `task:<id>` (an AI task). Pushed topics: `booking.requested`,
+`booking.confirmed`, `booking.rejected`, `booking.cancelled`,
+`booking.completed`, `availability.changed`, `message.sent`, `ai.results`.
+
+**Who may hear what.** Chosen, after Farzaan's third-user test showed anyone could
+join any channel:
+
+- You can only subscribe to your own `user:<id>`. Other users' channels are
+  dropped silently, so a client cannot tell whether they exist.
+- `property:<id>` is open to anyone signed in, but only receives
+  `availability.changed` and booking outcomes, with only public fields
+  (`property_id`, dates, status, `availability_version`). Never `guest_id`,
+  `host_id`, the reason or the price. Pending requests and messages never go there.
+- `task:<id>` frames reach only the task's owner (`payload.user_id`) or an admin.
+- Tokens are verified with HS256 pinned, and a token without `sub` is refused (4401).
+
+Rejected: putting the full event on every channel and trusting clients to
+subscribe honestly. The trade-off is two frame shapes per event (full for the
+people involved, filtered for watchers), which is still a single pass over the
+open sockets.
+
+## Analytics
+
+All nine endpoints from API doc §8 are implemented. Every number is computed
+live from MySQL and the Mongo `events` and `traces` collections, never from
+samples. All GETs take `from` and `to` (a date, inclusive, or an ISO timestamp);
+the default is the last 30 days. Hosts and guests only see their own data (403
+otherwise); admins can pick any.
+
+Definitions (API doc §8):
+
+- **Occupancy rate** = booked nights ÷ available nights in the range, where
+  available nights exclude dates the host blocked.
+- **Revenue** is counted per night stayed (`total_price ÷ nights` for each night
+  in `reservation_nights`), so a stay that crosses the range edge is split correctly.
+- **Median response time** = minutes from a guest's first message in a thread to
+  the host's first reply (read from slice 1's messages).
+- **Funnel** = viewed → saved → requested → confirmed → completed. "Confirmed"
+  means ever confirmed (from status history), so a stay cancelled after
+  confirmation still counts, but a request withdrawn before the host answered does not.
+- **Workflow latency** = last step − first step for a `trace_id`.
+- **Consumer lag** = latest offset − committed offset per group, read with the
+  Kafka admin API. If Kafka cannot be reached within 3 s, the platform dashboard
+  still answers, with nulls and the reason.
+
+**AI metrics.** Chosen: computed from the §11 events. Tasks are counted by unique
+`task_id`, because the parser republishes `ai.requests` for every task; each
+trace's clock starts at its first `ai.requests`; events are deduplicated on
+`idempotency_key` (delivery is at least once); round-1 messages that only ask an
+agent to resend are skipped. Precision@10 and recall@10 come from the evaluated
+config in `agent_versions`.
+
+**Where events come from.** Chosen: a dedicated worker in its own consumer group
+stores every domain event once (upsert on `event_id`). Rejected: querying each
+service's database from analytics, which couples analytics to every schema and
+misses events that never reach a database. The trade-off is one more copy of each
+event in Mongo.
+
+**Trace view.** `/traces/{trace_id}` merges step documents from the `traces`
+collection with one step per Kafka event (service = the topic's producer, latency
+= delay until analytics consumed it). Someone else's trace answers 404, exactly
+like an unknown one.
+
+**Event ingest.** `POST /events/ingest` takes one envelope or `{events}` (max 500)
+and answers 202 `{accepted, rejected, errors}`. A guest or host may only report
+their own `actor_id`. Rejected envelopes are stored for the platform's
+rejected-envelope count.
+
+## Dashboards
+
+- **Guest:** bookings per day, reservation status, saved vs removed per day,
+  average match score, recommendation approvals; 7/30/90 days.
+- **Host:** occupancy, revenue, average nightly price, cancellations, median
+  response time; revenue per day, views-to-booking funnel, monthly rating trend.
+- **Platform + AI (admin):** throughput, latencies, errors, retries, DLQ and
+  rejected counts, events by topic, consumer lag; agent publication timeline,
+  disagreement, challenges, votes, dissent, approvals. The trace lookup at the top
+  takes a `trace_id` (also as `?trace_id=` in the URL) to show one journey end to
+  end during the demo.
+
+Chosen: plain SVG charts with no chart library, a hover tooltip and a table view
+on every chart, so no value depends on colour or hover alone. Rejected: adding a
+charting dependency, which would change the shared `package.json` and lockfile.
+The trade-off is a small amount of chart code to maintain (`charts.jsx`).
+
+## Limits
+
+- `geo` reports `searches: null` until property-service publishes a search event.
+- Rejected envelopes are counted in Mongo; sending them to an `events.dlq` topic
+  waits for the team to add that topic.
+- Per-service trace steps (for example `claim_nights` in the booking worker) need
+  the shared trace helper in `packages/common`, which is proposed but not yet
+  agreed. Until then traces are built from Kafka events.
+- A WebSocket that drops is not reconnected automatically yet (`useLiveUpdates.js`).
+
+## Performance report
+
+The JMeter plans for the §9 experiments go in `tests/load/`, with results in
+`tests/load/results/`. This section will hold the configuration, graphs and
+findings once the runs are done.
+
+## Run it
+
+```bash
+npm run dev:review
+```
+```bash
+npm run dev:analytics
+```
+```bash
+npm run worker -w services/analytics-service
+```
+```bash
+npm run dev:notify
+```
+```bash
+npm test -w services/review-service -w services/analytics-service -w services/notification-gateway
+```
+
+Dashboards: `/dashboards/guest`, `/dashboards/host` and `/dashboards/platform`
+(admin) in the client.
