@@ -312,3 +312,54 @@ test('ingest: body validated; signed-in callers only', () =>
     assert.strictEqual((await post(base, '/events/ingest', { events: Array(501).fill({}) }, SERVICE)).status, 400);
     assert.strictEqual((await post(base, '/events/ingest', envelope())).status, 401);
   }));
+
+// ---------------------------------------------------------------- AI summary (real event shapes from ai-service)
+const { summarizeAi } = require('../src/models/stats');
+const at = (ms) => new Date(Date.parse('2026-11-25T10:00:00.000Z') + ms).toISOString();
+const evt = (type, trace, ms, payload, key) => ({ event_type: type, trace_id: trace, timestamp: at(ms), payload, idempotency_key: key || `${type}:${trace}:${ms}` });
+
+test('AI summary: the parser\'s second ai.requests does not double the task count or shift the clock', () => {
+  const requests = [
+    evt('ai.requests', 'tr1', 0, { task_id: 'tsk_1' }, 'api-1'),
+    evt('ai.requests', 'tr1', 900, { task_id: 'tsk_1' }, 'tsk_1:parsed'), // parser republish, later
+    evt('ai.requests', 'tr2', 0, { task_id: 'tsk_2' }, 'api-2'),
+  ];
+  const debate = [
+    evt('debate.round.0', 'tr1', 3800, { agent: 'matching' }),
+    evt('ai.results', 'tr1', 21450, { dissent: [{ agent: 'matching' }] }, 'tsk_1:result'),
+  ];
+  const s = summarizeAi(requests, debate);
+  assert.strictEqual(s.tasks, 2); // unique task_ids, not 3 events
+  assert.strictEqual(s.publication_timeline_ms.matching, 3800); // from the FIRST ai.requests, not 2900
+  assert.strictEqual(s.publication_timeline_ms.verdict, 21450);
+});
+
+test('AI summary: round-1 retries are skipped and redelivered events count once', () => {
+  const requests = [evt('ai.requests', 'tr1', 0, { task_id: 'tsk_1' }, 'api-1')];
+  const round1 = evt('debate.round.1', 'tr1', 9000, { challenges: [{}, {}, {}], disagreement_score: 0.42 }, 'r1');
+  const debate = [
+    evt('debate.round.1', 'tr1', 8000, { retry: { agent: 'risk' }, challenges: [], disagreement_score: null }, 'retry-1'),
+    round1, { ...round1 }, // the same message delivered twice
+    evt('debate.round.2', 'tr1', 14000, { agent: 'matching', vote: { choice: 'switch' } }, 'v1'),
+    evt('debate.round.2', 'tr1', 14000, { agent: 'matching', vote: { choice: 'switch' } }, 'v1'), // redelivery
+    evt('debate.round.2', 'tr1', 14500, { agent: 'risk', vote: { choice: 'keep' } }, 'v2'),
+    evt('ai.results', 'tr1', 20000, { dissent: [] }, 'res'),
+    evt('ai.results', 'tr1', 20000, { dissent: [] }, 'res'), // redelivery
+    evt('ai.approvals', 'tr1', 60000, { decision: 'edited' }, 'ap'),
+    evt('ai.approvals', 'tr1', 60000, { decision: 'edited' }, 'ap'), // redelivery
+  ];
+  const s = summarizeAi(requests, debate);
+  assert.strictEqual(s.challenges, 3);
+  assert.strictEqual(s.avg_disagreement, 0.42);
+  assert.deepStrictEqual(s.votes, { keep: 1, switch: 1, abstain: 0 });
+  assert.deepStrictEqual(s.approvals, { approved: 0, edited: 1, rejected: 0 });
+  assert.strictEqual(s.dissent_rate, 0);
+});
+
+test('AI summary: no requests in the window gives zeros and nulls, not errors', () => {
+  const s = summarizeAi([], [evt('ai.results', 'other', 0, {})]);
+  assert.strictEqual(s.tasks, 0);
+  assert.strictEqual(s.avg_disagreement, null);
+  assert.strictEqual(s.dissent_rate, null);
+  assert.strictEqual(s.publication_timeline_ms.verdict, null);
+});

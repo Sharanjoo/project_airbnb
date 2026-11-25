@@ -179,13 +179,17 @@ async function guestDashboard(guestId, w) {
     ev.find({ event_type: 'property.saved', 'payload.guest_id': guestId, timestamp: inWindow(w) }, { projection: { _id: 0, timestamp: 1, 'payload.saved': 1 } }).toArray(),
     ev.find({ event_type: 'ai.requests', actor_id: guestId, timestamp: inWindow(w) }, { projection: { _id: 0, trace_id: 1 } }).toArray(),
     ev.find({ event_type: 'ai.approvals', timestamp: inWindow(w), $or: [{ actor_id: guestId }, { 'payload.reviewer_id': guestId }] },
-      { projection: { _id: 0, 'payload.decision': 1 } }).toArray(),
+      { projection: { _id: 0, trace_id: 1, 'payload.decision': 1 } }).toArray(),
   ]);
-  // match score = the recommended property's score in the Chair's result (§9) for this guest's requests
+  // match score = the recommended property's score in the Chair's result (§9) for this guest's requests.
+  // Delivery is at least once, so keep one result and one decision per task (trace).
   const results = requests.length
-    ? await ev.find({ event_type: 'ai.results', trace_id: { $in: requests.map((r) => r.trace_id) } }, { projection: { _id: 0, 'payload.recommended.score': 1 } }).toArray()
+    ? await ev.find({ event_type: 'ai.results', trace_id: { $in: [...new Set(requests.map((r) => r.trace_id))] } },
+      { projection: { _id: 0, trace_id: 1, 'payload.recommended.score': 1 } }).toArray()
     : [];
-  const scores = results.map((r) => r.payload?.recommended?.score).filter((s) => typeof s === 'number');
+  const scoreByTrace = new Map();
+  for (const r of results) if (!scoreByTrace.has(r.trace_id)) scoreByTrace.set(r.trace_id, r.payload?.recommended?.score);
+  const scores = [...scoreByTrace.values()].filter((s) => typeof s === 'number');
 
   const savedByDay = new Map();
   for (const s of saves) {
@@ -197,7 +201,9 @@ async function guestDashboard(guestId, w) {
   const statusSummary = Object.fromEntries(STATUSES.map((s) => [s, 0]));
   for (const r of statusRows) statusSummary[r.status] = num(r.n);
   const decisions = { approved: 0, edited: 0, rejected: 0 };
-  for (const a of approvals) {
+  const decisionByTrace = new Map(); // one decision per task (§9)
+  for (const a of approvals) if (!decisionByTrace.has(a.trace_id)) decisionByTrace.set(a.trace_id, a);
+  for (const a of decisionByTrace.values()) {
     const d = String(a.payload?.decision || '').toLowerCase();
     if (d in decisions) decisions[d]++;
   }
@@ -308,72 +314,114 @@ async function platform(w) {
 }
 
 // ---------------------------------------------------------------- ai (admin)
-async function ai({ version }, w) {
-  const db = await getMongo();
-  const ev = db.collection('events');
-  const reqMatch = { event_type: 'ai.requests', timestamp: inWindow(w) };
-  if (version) reqMatch['payload.config_version'] = version;
-  const requests = await ev.find(reqMatch, { projection: { _id: 0, trace_id: 1, timestamp: 1 } }).toArray();
-  const traceIds = requests.map((r) => r.trace_id);
-  const startOf = new Map(requests.map((r) => [r.trace_id, Date.parse(r.timestamp)]));
-  const debate = traceIds.length
-    ? await ev.find({ trace_id: { $in: traceIds }, event_type: { $in: ['debate.round.0', 'debate.round.1', 'debate.round.2', 'ai.results', 'ai.approvals'] } },
-      { projection: { _id: 0, trace_id: 1, event_type: 1, timestamp: 1, payload: 1 } }).toArray()
-    : [];
+/** Drop redeliveries: delivery is at least once, so the same idempotency_key can arrive twice (Kavan). */
+function dedupe(events) {
+  const seen = new Set();
+  return events.filter((e) => {
+    const k = e.idempotency_key || e.event_id;
+    if (!k) return true;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/**
+ * The /analytics/ai numbers from raw events (pure, so it is unit tested).
+ *   requests: ai.requests events in the window. The AI API publishes one and the parser
+ *             publishes a second for the same task, so tasks are counted by unique task_id
+ *             and each trace's clock starts at its FIRST ai.requests (§11, Kavan).
+ *   debate:   debate.round.0/1/2, ai.results and ai.approvals events for those traces.
+ */
+function summarizeAi(requests, debate) {
+  const reqs = dedupe(requests);
+  const taskIds = new Set(reqs.map((r) => r.payload?.task_id || r.trace_id));
+  const startOf = new Map();
+  for (const r of reqs) {
+    const t = Date.parse(r.timestamp);
+    if (!startOf.has(r.trace_id) || t < startOf.get(r.trace_id)) startOf.set(r.trace_id, t);
+  }
 
   const disagreements = [];
   let challenges = 0;
   const votes = { keep: 0, switch: 0, abstain: 0 };
   const approvals = { approved: 0, edited: 0, rejected: 0 };
-  let results = 0;
-  let withDissent = 0;
+  const resultByTrace = new Map(); // one result per task, even if it was published twice
+  const approvalByTrace = new Map(); // one decision per task (§9)
   const firstPublish = new Map(); // `${trace}|${agent}` -> ms after the request
-  const verdictMs = [];
-  for (const e of debate) {
+  for (const e of dedupe(debate)) {
     const p = e.payload || {};
+    if (!startOf.has(e.trace_id)) continue;
     const after = Date.parse(e.timestamp) - startOf.get(e.trace_id);
     if (e.event_type === 'debate.round.0' && p.agent) {
       const k = `${e.trace_id}|${p.agent}`;
       if (!firstPublish.has(k) || after < firstPublish.get(k)) firstPublish.set(k, after);
     } else if (e.event_type === 'debate.round.1') {
+      if (p.retry) continue; // a resend request to one agent, not a real round (empty challenges, null score)
       if (typeof p.disagreement_score === 'number') disagreements.push(p.disagreement_score);
       challenges += Array.isArray(p.challenges) ? p.challenges.length : 0;
     } else if (e.event_type === 'debate.round.2') {
       const choice = p.vote && p.vote.choice;
       if (choice in votes) votes[choice]++;
     } else if (e.event_type === 'ai.results') {
-      results++;
-      if (Array.isArray(p.dissent) && p.dissent.length) withDissent++;
-      verdictMs.push(after);
+      const prev = resultByTrace.get(e.trace_id);
+      if (!prev || after < prev.after) resultByTrace.set(e.trace_id, { after, dissent: Array.isArray(p.dissent) && p.dissent.length > 0 });
     } else if (e.event_type === 'ai.approvals') {
-      const d = String(p.decision || '').toLowerCase();
-      if (d in approvals) approvals[d]++;
+      if (!approvalByTrace.has(e.trace_id)) approvalByTrace.set(e.trace_id, String(p.decision || '').toLowerCase());
     }
   }
+  for (const d of approvalByTrace.values()) if (d in approvals) approvals[d]++;
+  const results = [...resultByTrace.values()];
+
   const perAgent = {};
   for (const [k, ms] of firstPublish) {
     const agent = k.split('|')[1];
     (perAgent[agent] = perAgent[agent] || []).push(ms);
   }
   const timeline = Object.fromEntries(Object.entries(perAgent).map(([a, list]) => [a, Math.round(average(list))]));
-  timeline.verdict = verdictMs.length ? Math.round(average(verdictMs)) : null;
+  timeline.verdict = results.length ? Math.round(average(results.map((r) => r.after))) : null;
+
+  return {
+    tasks: taskIds.size,
+    avg_disagreement: round(average(disagreements), 2),
+    challenges,
+    votes,
+    dissent_rate: ratio(results.filter((r) => r.dissent).length, results.length),
+    approvals,
+    publication_timeline_ms: timeline,
+  };
+}
+
+async function ai({ version }, w) {
+  const db = await getMongo();
+  const ev = db.collection('events');
+  const reqMatch = { event_type: 'ai.requests', timestamp: inWindow(w) };
+  if (version) reqMatch['payload.config_version'] = version;
+  const fields = { _id: 0, event_id: 1, idempotency_key: 1, trace_id: 1, event_type: 1, timestamp: 1, payload: 1 };
+  const requests = await ev.find(reqMatch, { projection: fields }).toArray();
+  const traceIds = [...new Set(requests.map((r) => r.trace_id))];
+  const debate = traceIds.length
+    ? await ev.find({ trace_id: { $in: traceIds }, event_type: { $in: ['debate.round.0', 'debate.round.1', 'debate.round.2', 'ai.results', 'ai.approvals'] } },
+      { projection: fields }).toArray()
+    : [];
 
   // precision@10 / recall@10 come from the evaluated config version (§11 agent_versions)
   const versions = db.collection('agent_versions');
   const v = version ? await versions.findOne({ version_id: version }) : await versions.find({ status: 'promoted' }).sort({ created_at: -1 }).limit(1).next();
   const metric = (doc, a, b) => (doc ? (doc[a] ?? doc[b] ?? null) : null);
 
+  const s = summarizeAi(requests, debate);
   return {
     version: v ? v.version_id : version || null,
-    tasks: requests.length,
-    avg_disagreement: round(average(disagreements), 2),
-    challenges,
-    votes,
-    dissent_rate: ratio(withDissent, results),
+    tasks: s.tasks,
+    avg_disagreement: s.avg_disagreement,
+    challenges: s.challenges,
+    votes: s.votes,
+    dissent_rate: s.dissent_rate,
     precision_at_10: metric(v, 'precision_at_10', 'precision@10'),
     recall_at_10: metric(v, 'recall_at_10', 'recall@10'),
-    approvals,
-    publication_timeline_ms: timeline,
+    approvals: s.approvals,
+    publication_timeline_ms: s.publication_timeline_ms,
   };
 }
 
@@ -441,5 +489,5 @@ async function storeRejected(items) {
 
 module.exports = {
   funnel, propertyOwner, hostDashboard, guestDashboard, top, geo, platform, ai, trace, storeEvents, storeRejected,
-  fillDays, median, conversion, producerOf, STATUSES,
+  fillDays, median, conversion, producerOf, summarizeAi, dedupe, STATUSES,
 };
