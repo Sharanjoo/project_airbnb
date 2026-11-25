@@ -152,6 +152,15 @@ async function lockPropertyShared(conn, propertyId) {
   await conn.execute('SELECT property_id FROM properties WHERE property_id = ? FOR SHARE', [propertyId]);
 }
 
+/**
+ * Reads the guest's row with a shared lock. A delete takes the exclusive lock on the same row,
+ * so the delete and a new booking for that guest cannot slip past each other.
+ */
+async function lockGuestShared(conn, guestId) {
+  const [rows] = await conn.execute('SELECT guest_id, is_deleted FROM guests WHERE guest_id = ? FOR SHARE', [guestId]);
+  return rows[0] || null;
+}
+
 /** Does a host block overlap the stay from checkIn up to checkOut? */
 async function hasBlockedDates(conn, propertyId, checkIn, checkOut) {
   const [rows] = await conn.execute(
@@ -329,6 +338,7 @@ module.exports = {
   setStatus,
   releaseNights,
   lockPropertyShared,
+  lockGuestShared,
   hasBlockedDates,
   previousStatusBefore,
   SCHEDULER_GROUP,
