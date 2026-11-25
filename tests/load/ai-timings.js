@@ -4,7 +4,8 @@
 //
 // Each task: a load-test guest (tokens from booking-setup.js) posts an AI request through
 // the gateway and listens on the task's WebSocket stream until the verdict. Reported per run:
-//   first agent update   first agent.published frame   } server clock, measured from the
+//   parse                parser.completed frame        } server clock, measured from the
+//   first agent update   first agent.published frame   }
 //   first challenge      first challenge.issued frame  } task's QUEUED frame, so exact
 //   verdict              verdict frame                 }
 //   WS delivery latency  frame arrival here minus the frame's own timestamp, corrected for
@@ -72,6 +73,7 @@ function runTask(i, offset) {
         // frames created after we connected show real push latency; earlier ones are a replay
         if (ts + (-offset) >= out.connected - 5) out.deliveries.push(arrived - (ts - offset));
         if (queued !== null) {
+          if (f.type === 'parser.completed') { out.parsed = ts - queued; out.provider = f.provider; }
           if (f.type === 'agent.published' && out.firstAgent === undefined) out.firstAgent = ts - queued;
           if (f.type === 'challenge.issued' && out.firstChallenge === undefined) out.firstChallenge = ts - queued;
           if (f.type === 'verdict') out.verdict = ts - queued;
@@ -106,6 +108,9 @@ function runTask(i, offset) {
     concurrency: CONCURRENCY,
     completed: okRuns.length,
     failed: results.length - okRuns.length,
+    parser: [...new Set(okRuns.map((r) => r.provider).filter(Boolean))].join('+') || null,
+    parse_p50_ms: pct(col('parsed'), 50),
+    parse_p95_ms: pct(col('parsed'), 95),
     first_agent_p50_ms: pct(col('firstAgent'), 50),
     first_agent_p95_ms: pct(col('firstAgent'), 95),
     first_challenge_p50_ms: pct(col('firstChallenge'), 50),
@@ -119,7 +124,7 @@ function runTask(i, offset) {
     clock_offset_ms: Math.round(offset),
   };
   const errors = [...new Set(results.filter((r) => !r.ok).map((r) => r.error || r.final))];
-  console.log(`${s.label}: ${s.completed}/${s.tasks} debates finished (concurrency ${s.concurrency}) | first agent p50 ${s.first_agent_p50_ms} p95 ${s.first_agent_p95_ms} ms | first challenge p50 ${s.first_challenge_p50_ms} p95 ${s.first_challenge_p95_ms} ms | verdict p50 ${s.verdict_p50_ms} p95 ${s.verdict_p95_ms} ms | WS delivery avg ${s.ws_delivery_avg_ms}, p50 ${s.ws_delivery_p50_ms}, p95 ${s.ws_delivery_p95_ms} ms${errors.length ? ` | errors: ${errors.join(', ')}` : ''}`);
+  console.log(`${s.label}: ${s.completed}/${s.tasks} debates finished (concurrency ${s.concurrency}, parser ${s.parser}) | parse p50 ${s.parse_p50_ms} p95 ${s.parse_p95_ms} ms | first agent p50 ${s.first_agent_p50_ms} p95 ${s.first_agent_p95_ms} ms | first challenge p50 ${s.first_challenge_p50_ms} p95 ${s.first_challenge_p95_ms} ms | verdict p50 ${s.verdict_p50_ms} p95 ${s.verdict_p95_ms} ms | WS delivery avg ${s.ws_delivery_avg_ms}, p50 ${s.ws_delivery_p50_ms}, p95 ${s.ws_delivery_p95_ms} ms${errors.length ? ` | errors: ${errors.join(', ')}` : ''}`);
   const keys = Object.keys(s);
   if (!fs.existsSync(CSV)) fs.writeFileSync(CSV, `${keys.join(',')}\n`);
   fs.appendFileSync(CSV, `${keys.map((k) => s[k]).join(',')}\n`);
