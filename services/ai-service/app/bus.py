@@ -1,5 +1,6 @@
 """Kafka producer for the AI API. Key = trace_id so one debate stays on one
 partition (trace isolation, API doc §11). KAFKA_ENABLED=false keeps tests offline."""
+import asyncio
 import json
 
 from aiokafka import AIOKafkaProducer
@@ -33,4 +34,6 @@ class Bus:
         if not config.KAFKA_ENABLED:
             self.sent.append((topic, env))
             return
-        await self.producer.send_and_wait(topic, json.dumps(env).encode(), key=env["trace_id"].encode())
+        await asyncio.wait_for(
+            self.producer.send_and_wait(topic, json.dumps(env).encode(), key=env["trace_id"].encode()),
+            config.PUBLISH_TIMEOUT_S)

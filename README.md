@@ -153,13 +153,13 @@ Working and tested:
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)
 - Notification gateway WebSocket push by channel
-- AI API: `POST /ai/requests` publishes `ai.requests` with the same trace id; harness checks for agent output, topic permissions and disagreement score
+- AI service (Slice 5, in progress): MongoDB task store, owner-checked task/result/debate reads, request parser (optional Ollama via `LLM_PROVIDER`), and matching, risk and fairness round-0 opinions over Kafka with harness checks. The Chair, stream, approval and client page are not built yet
 
 Stubs that return `501 NOT_IMPLEMENTED` until their owner fills them in: every
-other endpoint, the agent logic, and all client pages.
+other endpoint, and all client pages.
 
 Known gaps:
 
 - The Docker images for the services have not been built yet. Run `docker compose up --build` once and fix anything that fails before splitting work.
 - Consumer retries are in-process. The API doc also mentions `<topic>.retry.N` topics; Slice 3 decides whether to add them.
-- The AI task store is in memory; Slice 5 moves it to MongoDB.
+- AI tests run offline; set `TEST_MONGO_URL=mongodb://localhost:27018` to also run the MongoDB store tests.
