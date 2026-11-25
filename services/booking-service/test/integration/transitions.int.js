@@ -25,6 +25,7 @@ async function clean() {
     await db().execute('DELETE FROM reservations WHERE reservation_id = ?', [id]);
   }
   await db().execute("DELETE FROM availability_blocks WHERE start_date >= '2028-01-01' AND start_date < '2029-01-01'");
+  await db().execute("DELETE FROM guests WHERE guest_id LIKE 'gst_deltest%'");
 }
 test.before(clean);
 test.beforeEach(() => { published.length = 0; });
@@ -264,6 +265,69 @@ test('a duplicate delivery of a rejected request re-sends booking.rejected and w
   await worker.handleBookingRequested(e, META('booking.requested'));
   assert.strictEqual(sent('booking.rejected').length, 1);
   assert.deepStrictEqual(await historyOf(id), ['null>REJECTED']);
+});
+
+// guests whose account is gone
+
+async function makeGuest(isDeleted) {
+  const id = `gst_deltest${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  await db().execute(
+    'INSERT INTO guests (guest_id, first_name, last_name, email, password_hash, is_deleted) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, 'Test', 'Guest', `${id}@test.invalid`, 'not-a-real-hash', isDeleted],
+  );
+  return id;
+}
+
+test('a request from a guest who was deleted after the API accepted it is REJECTED with GUEST_DELETED and claims no nights', async () => {
+  const guestId = await makeGuest(true);
+  const e = requestedEvent(guestId, day(95), day(97));
+  await worker.handleBookingRequested(e, META('booking.requested'));
+  const id = e.payload.reservation_id;
+
+  const row = await repo.findReservation(id);
+  assert.strictEqual(row.status, 'REJECTED');
+  assert.strictEqual(row.cancellation_reason, 'GUEST_DELETED');
+  assert.strictEqual(await nightsOf(id), 0);
+  assert.strictEqual(sent('booking.rejected')[0].env.payload.reason, 'GUEST_DELETED');
+  assert.deepStrictEqual(await historyOf(id), ['null>REJECTED']);
+
+  const other = await reserve('gst_0001', day(95), day(97));
+  assert.strictEqual(await statusOf(other), 'REQUESTED', 'the dates stay free for someone else');
+});
+
+test('a delete that is still in progress holds the request back, then the request is rejected', async () => {
+  const guestId = await makeGuest(false);
+  const deleting = await db().getConnection();
+  await deleting.beginTransaction();
+  await deleting.execute('UPDATE guests SET is_deleted = TRUE WHERE guest_id = ?', [guestId]); // the delete holds the row
+
+  const e = requestedEvent(guestId, day(110), day(112));
+  let finished = false;
+  const running = worker.handleBookingRequested(e, META('booking.requested')).then(() => { finished = true; });
+  await new Promise((r) => setTimeout(r, 500));
+  assert.strictEqual(finished, false, 'the worker waits for the delete to finish');
+
+  await deleting.commit();
+  deleting.release();
+  await running;
+  const row = await repo.findReservation(e.payload.reservation_id);
+  assert.strictEqual(row.status, 'REJECTED');
+  assert.strictEqual(row.cancellation_reason, 'GUEST_DELETED');
+});
+
+test('a request from a guest who is not deleted is processed as usual', async () => {
+  const guestId = await makeGuest(false);
+  const e = requestedEvent(guestId, day(100), day(102));
+  await worker.handleBookingRequested(e, META('booking.requested'));
+  assert.strictEqual(await statusOf(e.payload.reservation_id), 'REQUESTED');
+});
+
+test('a request from a guest who does not exist is a permanent error (goes to the dead-letter topic)', async () => {
+  const e = requestedEvent('gst_nobody_here', day(105), day(107));
+  await assert.rejects(worker.handleBookingRequested(e, META('booking.requested')), (err) => err.permanent === true);
+  assert.strictEqual(await statusOf(e.payload.reservation_id), undefined, 'nothing was written');
+  const [claimed] = await db().execute('SELECT 1 FROM processed_events WHERE consumer_group = ? AND idempotency_key = ?', ['booking-worker-cg', e.idempotency_key]);
+  assert.strictEqual(claimed.length, 0, 'the claim rolled back too, so a redelivery is not skipped');
 });
 
 test.after(async () => {

@@ -1,7 +1,8 @@
 // Booking worker. It runs as its own process, separate from the booking API.
 //
 // Events it handles:
-//   booking.requested: claims the nights, or rejects the request if they are taken or blocked
+//   booking.requested: claims the nights, or rejects the request if they are taken or blocked,
+//     or if the guest's account was deleted in the meantime
 //   booking.approved: confirms the booking and sends booking.confirmed and payment.completed
 //   booking.declined: marks it declined, frees the nights and sends booking.rejected
 //   booking.cancel_requested: cancels it, frees the nights and sends booking.cancelled
@@ -62,13 +63,20 @@ async function handleBookingRequested(env, { topic }) {
     await conn.query('SAVEPOINT claim_nights');
     let rejectedReason = null;
     try {
-      // Wait for any host who is blocking dates on this property right now.
-      await repo.lockPropertyShared(conn, p.property_id);
-      if (await repo.hasBlockedDates(conn, p.property_id, p.check_in, p.check_out)) {
-        rejectedReason = 'DATE_CONFLICT'; // the host blocked these dates
+      // The account can be deleted after the API accepted the request but before we got here.
+      const guest = await repo.lockGuestShared(conn, p.guest_id);
+      if (!guest) throw new PermanentError(`guest ${p.guest_id} does not exist`);
+      if (guest.is_deleted) {
+        rejectedReason = 'GUEST_DELETED';
       } else {
-        await repo.insertReservationWithNights(conn, p, 'REQUESTED', env.trace_id);
-        await repo.recordStatus(conn, { reservationId: p.reservation_id, from: null, to: 'REQUESTED', actorId: ACTOR, traceId: env.trace_id });
+        // Wait for any host who is blocking dates on this property right now.
+        await repo.lockPropertyShared(conn, p.property_id);
+        if (await repo.hasBlockedDates(conn, p.property_id, p.check_in, p.check_out)) {
+          rejectedReason = 'DATE_CONFLICT'; // the host blocked these dates
+        } else {
+          await repo.insertReservationWithNights(conn, p, 'REQUESTED', env.trace_id);
+          await repo.recordStatus(conn, { reservationId: p.reservation_id, from: null, to: 'REQUESTED', actorId: ACTOR, traceId: env.trace_id });
+        }
       }
     } catch (err) {
       if (err.code !== 'ER_DUP_ENTRY') throw err;
