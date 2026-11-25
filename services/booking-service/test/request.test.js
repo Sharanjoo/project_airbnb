@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const { createApp, logger } = require('@airbnb/common');
 const { buildRouter } = require('../src/routes');
 const { priceBreakdown, eachNight } = require('../src/pricing');
+const { hashBody } = require('../src/models/booking');
 
 const IDEM = '4f0b6a1e-1c22-4d7f-9a0a-8d2b7c3e5f10';
 const future = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
@@ -14,8 +15,10 @@ function fakeRepo(overrides = {}) {
     saved,
     findPropertyForBooking: async (id) =>
       id === 'prp_0001' ? { property_id: id, host_id: 'hst_0001', status: 'active', capacity: 3, nightly_price: '189.00', cleaning_fee: '40.00' } : null,
+    findActiveDuplicate: async () => null,
     findIdempotentResponse: async (k) => saved.get(k) || null,
-    saveIdempotentResponse: async (k, _b, status, body) => saved.set(k, { response_status: status, response_body: body }),
+    saveIdempotentResponse: async (k, fp, status, body) =>
+      saved.set(k, { request_hash: hashBody(fp), response_status: status, response_body: body }),
     ...overrides,
   };
 }
@@ -66,7 +69,53 @@ test('same Idempotency-Key twice publishes once and returns the same reservation
   } finally { server.close(); }
 });
 
-test('missing Idempotency-Key -> 400', async () => {
+test('same Idempotency-Key with a different body returns 409 IDEMPOTENCY_KEY_REUSED, nothing published', async () => {
+  const published = [];
+  const { server, base } = await start(fakeRepo(), { publish: async (t, e) => published.push(e) });
+  try {
+    assert.strictEqual((await post(base, '/bookings/request', goodBody())).status, 202);
+    const res = await post(base, '/bookings/request', { ...goodBody(), guest_count: 3 });
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual((await res.json()).error.code, 'IDEMPOTENCY_KEY_REUSED');
+    assert.strictEqual(published.length, 1);
+  } finally { server.close(); }
+});
+
+test('reservation_id is derived from the Idempotency-Key', async () => {
+  const { server, base } = await start(fakeRepo(), { publish: async () => {} });
+  try {
+    const body = await (await post(base, '/bookings/request', goodBody())).json();
+    assert.strictEqual(body.data.reservation_id, 'res_4f0b6a1e1c224d7f9a0a8d2b7c3e5f10');
+  } finally { server.close(); }
+});
+
+test('check_in must be today (UTC) or later (API doc §5)', async () => {
+  const { server, base } = await start(fakeRepo(), { publish: async () => {} });
+  try {
+    const utcDay = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+    const ok = await post(base, '/bookings/request', { ...goodBody(), check_in: utcDay(0), check_out: utcDay(2) });
+    assert.strictEqual(ok.status, 202);
+    const late = await post(base, '/bookings/request', { ...goodBody(), check_in: utcDay(-1), check_out: utcDay(1) }, { 'Idempotency-Key': '5a0b6a1e-1c22-4d7f-9a0a-8d2b7c3e5f11' });
+    assert.strictEqual(late.status, 400);
+  } finally { server.close(); }
+});
+
+test('the same guest requesting the same property and dates again, with a new key returns 409 DUPLICATE_BOOKING, nothing published', async () => {
+  const published = [];
+  const repo = fakeRepo({ findActiveDuplicate: async () => ({ reservation_id: 'res_existing' }) });
+  const { server, base } = await start(repo, { publish: async (t, e) => published.push(e) });
+  try {
+    const res = await post(base, '/bookings/request', goodBody());
+    assert.strictEqual(res.status, 409);
+    const { error } = await res.json();
+    assert.strictEqual(error.code, 'DUPLICATE_BOOKING');
+    assert.strictEqual(error.retryable, false);
+    assert.match(error.details[0].issue, /res_existing/);
+    assert.strictEqual(published.length, 0);
+  } finally { server.close(); }
+});
+
+test('missing Idempotency-Key returns 400', async () => {
   const { server, base } = await start(fakeRepo(), { publish: async () => {} });
   try {
     const res = await post(base, '/bookings/request', goodBody(), { 'Idempotency-Key': '' });
@@ -75,7 +124,7 @@ test('missing Idempotency-Key -> 400', async () => {
   } finally { server.close(); }
 });
 
-test('check_out before check_in -> 400', async () => {
+test('check_out before check_in returns 400', async () => {
   const { server, base } = await start(fakeRepo(), { publish: async () => {} });
   try {
     const res = await post(base, '/bookings/request', { ...goodBody(), check_out: future(9) });
@@ -83,7 +132,7 @@ test('check_out before check_in -> 400', async () => {
   } finally { server.close(); }
 });
 
-test('over capacity -> 422', async () => {
+test('over capacity returns 422', async () => {
   const { server, base } = await start(fakeRepo(), { publish: async () => {} });
   try {
     const res = await post(base, '/bookings/request', { ...goodBody(), guest_count: 5 });
@@ -91,7 +140,7 @@ test('over capacity -> 422', async () => {
   } finally { server.close(); }
 });
 
-test('unknown property -> 404', async () => {
+test('unknown property returns 404', async () => {
   const { server, base } = await start(fakeRepo(), { publish: async () => {} });
   try {
     const res = await post(base, '/bookings/request', { ...goodBody(), property_id: 'prp_nope' });
@@ -99,7 +148,7 @@ test('unknown property -> 404', async () => {
   } finally { server.close(); }
 });
 
-test('Kafka down -> 503 retryable', async () => {
+test('Kafka down returns 503 retryable', async () => {
   const { server, base } = await start(fakeRepo(), { publish: async () => { throw new Error('broker down'); } });
   try {
     const res = await post(base, '/bookings/request', goodBody());
@@ -108,7 +157,7 @@ test('Kafka down -> 503 retryable', async () => {
   } finally { server.close(); }
 });
 
-test('host role cannot request a booking -> 403', async () => {
+test('host role cannot request a booking returns 403', async () => {
   const { server, base } = await start(fakeRepo(), { publish: async () => {} });
   try {
     const res = await post(base, '/bookings/request', goodBody(), { 'X-User-Role': 'host' });
