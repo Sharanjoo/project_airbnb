@@ -1,0 +1,8 @@
+# Load-test override (Slice 4, Deliverable D). Use together with the main file:
+#   docker compose -f docker-compose.yml -f tests/load/docker-compose.loadtest.yml up -d --build
+# The gateway limits each user/IP to 100 requests per minute; a load test from one
+# machine would only measure 429s, so the limit is raised for test runs only.
+services:
+  gateway:
+    environment:
+      RATE_LIMIT_PER_MIN: "1000000"
