@@ -22,12 +22,20 @@ const { execSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const path = require('path');
 const jwt = require('jsonwebtoken');
-const mysql = require('mysql2/promise');
+const { getMysql } = require('@airbnb/common');
 const { Kafka, logLevel } = require('kafkajs');
 
 const ROOT = path.join(__dirname, '..');
+
+// Settings (JWT secret, database and Kafka addresses) come from .env, as in the README quick start.
+try { process.loadEnvFile(path.join(__dirname, '..', '.env')); } catch { /* .env is optional when the variables are already set */ }
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is not set. Copy .env.example to .env first (see the README quick start).');
+  process.exit(1);
+}
+
 const GATEWAY = process.env.GATEWAY_URL || 'http://localhost:8080';
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-dev-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 const BROKERS = (process.env.KAFKA_BROKERS || 'localhost:9094').split(',');
 const GROUP = 'booking-worker-cg';
 const TOPIC = 'booking.requested';
@@ -119,10 +127,7 @@ async function waitFor(fn, seconds, what) {
 }
 
 async function main() {
-  const db = await mysql.createConnection({
-    host: process.env.MYSQL_HOST || 'localhost', port: Number(process.env.MYSQL_PORT || 3307),
-    user: 'airbnb', password: 'airbnb', database: 'airbnb',
-  });
+  const db = getMysql(); // connection settings come from the shared helper and .env
   const one = async (sql, params) => Number((await db.execute(sql, params))[0][0].n);
   const counts = async (id) => ({
     reservations: await one('SELECT COUNT(*) n FROM reservations WHERE reservation_id = ?', [id]),
