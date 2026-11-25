@@ -9,7 +9,7 @@ import {
 // Slice 3: the host's reservation requests for one listing at a time.
 // A host can approve or decline a request (they have 24 hours to answer) and
 // cancel a confirmed booking. New requests show up by themselves: the page
-// refreshes every 15 seconds and whenever a live update arrives.
+// refreshes whenever a live update arrives, and every 15 seconds as a backup.
 
 const FILTERS = {
   pending: { label: 'Needs your answer', status: ['REQUESTED'] },
@@ -18,7 +18,7 @@ const FILTERS = {
   closed: { label: 'Cancelled and declined', status: ['CANCELLED', 'DECLINED', 'EXPIRED', 'REJECTED'] },
 };
 
-const LIVE_EVENTS = ['booking.confirmed', 'booking.rejected', 'booking.cancelled', 'booking.completed'];
+const LIVE_EVENTS = ['booking.requested', 'booking.confirmed', 'booking.rejected', 'booking.cancelled', 'booking.completed'];
 
 function Request({ item, onChanged }) {
   const keys = useIdempotencyKeys();
@@ -147,7 +147,7 @@ export default function HostRequests() {
 
   useEffect(() => { load(); }, [load]);
 
-  // New requests do not come through live updates, so check again every 15 seconds.
+  // The live update does the quick work. Checking every 15 seconds is only a safety net in case a push is missed.
   useEffect(() => {
     const timer = setInterval(load, 15000);
     return () => clearInterval(timer);
@@ -155,6 +155,12 @@ export default function HostRequests() {
 
   useLiveUpdates(session ? [`user:${session.user_id}`] : [], (frame) => {
     if (!LIVE_EVENTS.includes(frame.type)) return;
+    if (frame.type === 'booking.requested') {
+      setBanner('You have a new booking request.');
+      load();
+      setTimeout(load, 1200); // the push can arrive a few milliseconds before the worker has saved the booking
+      return;
+    }
     setBanner('A booking changed. The list has been refreshed.');
     load();
   });
