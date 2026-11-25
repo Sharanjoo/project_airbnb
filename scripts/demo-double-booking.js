@@ -12,11 +12,19 @@
 // It prints the real rows from the database, with the trace id of every request, so the
 // output can be used as evidence in the report. The demo guests and bookings are removed at the end.
 const { randomUUID } = require('crypto');
+const path = require('path');
 const jwt = require('jsonwebtoken');
-const mysql = require('mysql2/promise');
+const { getMysql } = require('@airbnb/common');
+
+// Settings (JWT secret, database and Kafka addresses) come from .env, as in the README quick start.
+try { process.loadEnvFile(path.join(__dirname, '..', '.env')); } catch { /* .env is optional when the variables are already set */ }
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is not set. Copy .env.example to .env first (see the README quick start).');
+  process.exit(1);
+}
 
 const GATEWAY = process.env.GATEWAY_URL || 'http://localhost:8080';
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-dev-secret';
+const JWT_SECRET = process.env.JWT_SECRET;
 const RACERS = Number(process.env.RACERS || 10);
 const PROPERTY = 'prp_0001';
 
@@ -36,10 +44,7 @@ async function waitFor(fn, seconds, what) {
 }
 
 async function main() {
-  const db = await mysql.createConnection({
-    host: process.env.MYSQL_HOST || 'localhost', port: Number(process.env.MYSQL_PORT || 3307),
-    user: 'airbnb', password: 'airbnb', database: 'airbnb', dateStrings: true,
-  });
+  const db = getMysql(); // connection settings come from the shared helper and .env
   // query (not execute) so a list passed to IN (?) is expanded into the statement
   const q = async (sql, params) => (await db.query(sql, params))[0];
   const call = (path, guestId, body, key = randomUUID(), traceId = randomUUID()) =>
