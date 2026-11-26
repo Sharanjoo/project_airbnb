@@ -128,11 +128,13 @@ write('search-index-p95.svg', columns({
 }));
 
 // cache measured at the property service (20 s, 50 users) vs through the gateway
+const probe = readCsv('search-cache-probe-summary.csv');
+const probeRate = (label) => n(probe.find((r) => r.label === label).throughput_per_s);
 write('search-cache.svg', columns({
   title: 'Redis cache: property service vs through the gateway (50 users)',
   subtitle: 'Cache gives 3.3x at the service; through the gateway the single Node.js gateway is the ceiling',
   groups: ['Service, no cache', 'Service, cache', 'Gateway, cache'],
-  series: [{ name: 'Throughput', values: [1352.8, 4519.5, 851.6] }],
+  series: [{ name: 'Throughput', values: [probeRate('nocache-direct-to-property-service'), probeRate('cache-direct-to-property-service'), probeRate('cache-via-gateway')] }],
   yLabel: 'requests per second',
   unit: ' req/s',
 }));

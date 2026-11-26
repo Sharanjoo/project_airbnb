@@ -253,6 +253,29 @@ sent to the DLQ, but while one event retries, the worker's other events on that
 partition wait. We kept the short window and the DLQ, so a broken event cannot
 stall a partition for long.
 
+**Replaying the dead-letter topic.** Every DLQ record keeps the original key and
+bytes, with headers that say why and where it came from. To look at them:
+
+```bash
+docker compose exec -T kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic booking.requested.dlq --from-beginning --timeout-ms 10000 --property print.headers=true --property print.key=true
+```
+
+Each line shows `failure_reason`, `failed_at`, `consumer_group`, `source_topic`,
+`source_partition` and `source_offset`, then the key and the original message.
+Replaying means publishing that message, unchanged and with the same key, back
+to `source_topic` once the cause is fixed (here: MySQL is back). It is safe to do
+for every record, even one that was applied after all, because every consumer of
+`booking.requested` handles a repeat: the booking worker skips it (`claimEvent`
+on the event's idempotency key), the messaging worker's thread is an upsert with
+a dedupe key, analytics stores each `event_id` once, and the notification gateway
+would only push it to the host again. A replayed booking that finds its dates
+taken by then is rejected with `DATE_CONFLICT` like any other. Records whose
+reason is a permanent error (malformed JSON, an invalid envelope, an approval from
+a host who does not own the reservation, an event for a reservation that does not
+exist) should not be replayed; they would only come back. The project has no
+replay tool yet: it is a manual step (or a small script that republishes the
+records and commits its own offset on the DLQ topic, so each one is sent once).
+
 The single-booking walk-through for the live demo is `npm run demo:recovery`
 (Slice 3).
 
@@ -321,4 +344,4 @@ cost of more database reads.
 | Runners | `run-search.sh`, `run-indexing.sh`, `run-booking.sh`, `run-kafka-scaling.sh`, `run-consumer-groups.sh`, `run-recovery.sh`, `ai-timings.js` |
 | Checks | `booking-e2e.js`, `drain-measure.js`, `groups-measure.js`, `recovery-check.js`, `summarize.js` |
 | Charts | `tests/load/make-charts.js` → `docs/performance/*.svg` |
-| Raw results | `tests/load/results/` (git-ignored: JTL files, summary CSVs, run info) |
+| Results | `tests/load/results/`: each experiment's summary CSV and run info are committed (the numbers behind this report); raw JTL files stay local |

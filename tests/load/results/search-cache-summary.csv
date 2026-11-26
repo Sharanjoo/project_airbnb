@@ -1,0 +1,6 @@
+label,threads,samples,duration_s,throughput_per_s,avg_ms,p50_ms,p95_ms,p99_ms,error_rate
+search-cache-1,1,46642,59.9,778,1,1,2,2,0
+search-cache-10,10,52977,55.5,954,4,4,6,14,0
+search-cache-25,25,36876,60.1,613.4,19,10,14,30,0
+search-cache-50,50,48705,60.9,800.1,29,17,24,37,0
+search-cache-100,100,44765,72.8,615.3,87,30,44,1310,0

@@ -1,0 +1,5 @@
+label,tasks,concurrency,completed,failed,parser,parse_p50_ms,parse_p95_ms,first_agent_p50_ms,first_agent_p95_ms,first_challenge_p50_ms,first_challenge_p95_ms,verdict_p50_ms,verdict_p95_ms,ws_delivery_avg_ms,ws_delivery_p50_ms,ws_delivery_p95_ms,wall_s,clock_offset_ms
+deterministic-c1,30,1,30,0,deterministic,,,13,18,23,29,43,50,238,240,254,8.1,5
+deterministic-c3,30,3,30,0,deterministic,,,29,54,48,70,87,102,211,210,253,2.7,4
+qwen3-8b-c1,10,1,10,0,ollama,9911,15021,9920,15031,9932,15047,9955,15071,120,109,224,105.5,4
+qwen3-8b-c3,9,3,6,3,ollama,24537,29160,24547,29172,24562,29184,24586,29206,175,176,244,85,6

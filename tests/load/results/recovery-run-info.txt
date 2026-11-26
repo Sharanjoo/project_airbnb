@@ -1,0 +1,10 @@
+run: recovery at 2026-11-25T22:34:24Z, machine Apple M4 Pro
+A. crash: 9864 bookings waiting in Kafka; starting the worker
+   killed the worker with SIGKILL after 3559 rows
+crash: 9864/9864 reservations (lost 0, extra 0) | history: 9864 exactly one, 0 duplicated | processed_events 9864 | nights mismatched 0 | last row 48571 ms after the restart | CONSISTENT
+   redelivered after the restart and skipped as duplicates: 0 | dead-letter messages added: 0
+B. outage: 9894 bookings waiting; starting the worker, stopping MySQL for 8s
+   MySQL stopped after 3298+ rows
+   MySQL back
+outage: 9888/9888 reservations (lost 0, extra 0) | history: 9888 exactly one, 0 duplicated | processed_events 9888 | nights mismatched 0 | last row 11682 ms after the restart | CONSISTENT
+   retries logged: 21 | gave up and sent to the dead-letter topic: 6 (DLQ grew by 6) | retry delays (ms): 211 235 294 319 336 353 374 432 462 477 533 551 571 591 856 912 921 937 972 988 994 

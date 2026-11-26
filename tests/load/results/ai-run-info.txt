@@ -1,0 +1,10 @@
+machine: Apple M4 Pro, LLM_PROVIDER=none (deterministic), STREAM_POLL_S=0.25
+deterministic-c1: 30/30 debates finished (concurrency 1) | first agent p50 13 p95 18 ms | first challenge p50 23 p95 29 ms | verdict p50 43 p95 50 ms | WS delivery avg 238, p50 240, p95 254 ms
+deterministic-c3: 30/30 debates finished (concurrency 3) | first agent p50 29 p95 54 ms | first challenge p50 48 p95 70 ms | verdict p50 87 p95 102 ms | WS delivery avg 211, p50 210, p95 253 ms
+model run: LLM_PROVIDER=ollama, LLM_MODEL=qwen3:8b on the host (Apple M4 Pro), LLM_TIMEOUT_S=15, parser only
+qwen3-8b-c1: 10/10 debates finished (concurrency 1, parser ollama) | parse p50 9911 p95 15021 ms | first agent p50 9920 p95 15031 ms | first challenge p50 9932 p95 15047 ms | verdict p50 9955 p95 15071 ms | WS delivery avg 120, p50 109, p95 224 ms
+qwen3-8b-c3: 6/9 debates finished (concurrency 3, parser ollama) | parse p50 24537 p95 29160 ms | first agent p50 24547 p95 29172 ms | first challenge p50 24562 p95 29184 ms | verdict p50 24586 p95 29206 ms | WS delivery avg 175, p50 176, p95 244 ms | errors: TIMED_OUT
+{"_id":{"fallback":null,"llm_fields":true},"n":4,"avg_parse_ms":9195.9825,"max_parse_ms":9365.22}
+{"_id":{"fallback":null,"llm_fields":false},"n":10,"avg_parse_ms":9609.34,"max_parse_ms":10855.7}
+{"_id":{"llm_fields":false},"n":2,"avg_parse_ms":null,"max_parse_ms":null}
+{"_id":{"fallback":"llm_error","llm_fields":false},"n":3,"avg_parse_ms":15011.513333333334,"max_parse_ms":15016.19}

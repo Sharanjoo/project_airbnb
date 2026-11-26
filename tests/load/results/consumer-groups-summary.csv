@@ -1,0 +1,5 @@
+label,groups_running,group,expected,handled,drain_s,per_s
+groups-1,1,booking,7393,7393,12.9,573
+groups-3,3,booking,7397,7397,13.1,565
+groups-3,3,messaging,7397,7397,3.6,2055
+groups-3,3,analytics,7397,7397,3.4,2176

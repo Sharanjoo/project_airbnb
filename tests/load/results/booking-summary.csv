@@ -1,0 +1,4 @@
+label,requests,send_rate_per_s,accepted,non_202,written,missing,api_p50_ms,api_p95_ms,api_p99_ms,pipeline_measured,pipeline_avg_ms,pipeline_p50_ms,pipeline_p95_ms,pipeline_p99_ms,pipeline_max_ms,drain_ms,client_e2e_p50_ms,client_e2e_p95_ms,clock_offset_ms
+booking-10per_s,647,10.8,647,0,647,0,9,14,19,647,4,4,9,13,16,2,3,10,6
+booking-50per_s,3038,50.8,3038,0,3038,0,5,6,7,3038,2,2,5,7,11,4,-2,2,7
+booking-200per_s,11998,200.7,11977,21,11977,0,4,8,10,11977,4,3,13,17,45,14,0,11,5

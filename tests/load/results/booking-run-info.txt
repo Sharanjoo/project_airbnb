@@ -1,0 +1,5 @@
+run: booking at 2026-11-25T21:34:27Z
+target: http://localhost:8080 (gateway), 50 threads, rates 10 50 200 bookings/s, 60s each
+booking workers: 1
+machine: Apple M4 Pro, 14 cores, 24 GB RAM
+dataset: 10003 active properties

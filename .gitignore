@@ -17,4 +17,8 @@ venv/
 .pytest_cache/
 
 # Load test output
-tests/load/results/
+tests/load/results/*
+# keep each experiment's summary and run info (the numbers behind docs/performance-report.md)
+!tests/load/results/*-summary.csv
+!tests/load/results/*-run-info.txt
+tests/load/results/smoke-summary.csv

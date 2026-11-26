@@ -1,0 +1,3 @@
+label,expected,reservations,lost,extra,history_exactly_one,history_duplicated,processed_events,nights_mismatched,recovered_after_ms,consistent
+crash,9864,9864,0,0,9864,0,9864,0,48571,true
+outage,9888,9888,0,0,9888,0,9888,0,11682,true
