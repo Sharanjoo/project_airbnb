@@ -55,15 +55,17 @@ test('findReservation + listStatusHistory return the API shape', async () => {
 });
 
 test('findPendingReservation finds an accepted request the worker has not written yet, with its owner', async () => {
-  const resId = newId('res');
-  await repo.saveIdempotentResponse(`reads-int-${randomUUID()}`, {}, 202, { data: { reservation_id: resId, status: 'PENDING' }, trace_id: 'x' }, 'gst_0001');
+  const key = randomUUID();
+  const resId = `res_${key.replace(/-/g, '')}`;
+  await repo.saveIdempotentResponse(key, {}, 202, { data: { reservation_id: resId, status: 'PENDING' }, trace_id: 'x' }, 'gst_0001');
   assert.deepStrictEqual(await repo.findPendingReservation(resId), { reservation_id: resId, status: 'PENDING', owner_id: 'gst_0001' });
   assert.strictEqual(await repo.findPendingReservation('res_unknown'), null);
 });
 
 test('an approve/decline/cancel record is not mistaken for a pending booking', async () => {
-  const resId = newId('res');
-  await repo.saveIdempotentResponse(`reads-int-${randomUUID()}`, {}, 202, { data: { reservation_id: resId, status: 'APPROVING' }, trace_id: 'x' }, 'hst_0001');
+  const key = randomUUID();
+  const resId = `res_${key.replace(/-/g, '')}`;
+  await repo.saveIdempotentResponse(key, {}, 202, { data: { reservation_id: resId, status: 'APPROVING' }, trace_id: 'x' }, 'hst_0001');
   assert.strictEqual(await repo.findPendingReservation(resId), null);
 });
 

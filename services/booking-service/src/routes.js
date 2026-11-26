@@ -82,7 +82,10 @@ function buildRouter({ bus, repo = defaultRepo }) {
   async function replayIfSeen(req, res) {
     const previous = await repo.findIdempotentResponse(req.idempotencyKey);
     if (!previous) return false;
-    if (previous.request_hash !== defaultRepo.hashBody(fingerprint(req))) {
+    // A key belongs to the person who first used it. Someone else sending it gets a conflict,
+    // never the first person's answer.
+    const sameOwner = !previous.actor_id || previous.actor_id === req.user.id;
+    if (!sameOwner || previous.request_hash !== defaultRepo.hashBody(fingerprint(req))) {
       throw Errors.conflict('IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used with a different request.', [
         { field: 'Idempotency-Key', issue: 'reused with a different body or endpoint' },
       ]);
@@ -138,13 +141,13 @@ function buildRouter({ bus, repo = defaultRepo }) {
     asyncHandler(async (req, res) => {
       const { property_id, check_in, check_out, guest_count, guest_message } = req.body;
 
+      // A retry with the same key returns the original answer, even after midnight UTC.
+      if (await replayIfSeen(req, res)) return;
+
       const today = new Date().toISOString().slice(0, 10); // the doc says check_in must be today or later (UTC)
       if (check_in < today) throw Errors.validation([{ field: 'check_in', issue: 'must be today or later' }]);
       const nights = nightsBetween(check_in, check_out);
       if (!Number.isInteger(nights) || nights < 1 || nights > 30) throw Errors.validation([{ field: 'check_out', issue: 'stay must be 1 to 30 nights' }]);
-
-      // The same Idempotency-Key again returns the original answer.
-      if (await replayIfSeen(req, res)) return;
 
       const property = await repo.findPropertyForBooking(property_id);
       if (!property) throw Errors.notFound('Property');
@@ -283,7 +286,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
       assertState(row, ['REQUESTED'], 'approve');
       return accept(req, res, {
         topic: TOPICS.BOOKING_APPROVED, row, status: 'APPROVING',
-        payload: { reservation_id: row.reservation_id, host_id: row.host_id },
+        payload: { reservation_id: row.reservation_id, host_id: row.host_id, requested_by: req.user.id },
       });
     }),
   );
@@ -301,7 +304,7 @@ function buildRouter({ bus, repo = defaultRepo }) {
       assertState(row, ['REQUESTED'], 'decline');
       return accept(req, res, {
         topic: TOPICS.BOOKING_DECLINED, row, status: 'DECLINING',
-        payload: { reservation_id: row.reservation_id, host_id: row.host_id, reason: req.body.reason },
+        payload: { reservation_id: row.reservation_id, host_id: row.host_id, requested_by: req.user.id, reason: req.body.reason },
       });
     }),
   );

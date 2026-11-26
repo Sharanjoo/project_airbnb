@@ -76,6 +76,7 @@ test('approve: owning host returns 202 APPROVING and booking.approved is publish
     assert.strictEqual(e.actor_id, 'hst_0001');
     assert.strictEqual(e.entity.entity_id, 'res_51a');
     assert.strictEqual(e.payload.host_id, 'hst_0001');
+    assert.strictEqual(e.payload.requested_by, 'hst_0001');
   } finally { server.close(); }
 });
 

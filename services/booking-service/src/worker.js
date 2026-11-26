@@ -113,7 +113,7 @@ const TRANSITIONS = {
     from: ['REQUESTED'],
     to: 'CONFIRMED',
     releases: false,
-    actorOf: (env) => env.payload.host_id,
+    actorOf: (env) => env.payload.requested_by || env.payload.host_id, // older events only carry host_id
     allowedActors: (row) => [row.host_id],
     reasonOf: () => null,
     outcome: TOPICS.BOOKING_CONFIRMED,
@@ -124,7 +124,7 @@ const TRANSITIONS = {
     from: ['REQUESTED'],
     to: 'DECLINED',
     releases: true,
-    actorOf: (env) => env.payload.host_id,
+    actorOf: (env) => env.payload.requested_by || env.payload.host_id, // older events only carry host_id
     allowedActors: (row) => [row.host_id],
     reasonOf: (env) => env.payload.reason,
     outcome: TOPICS.BOOKING_REJECTED,
