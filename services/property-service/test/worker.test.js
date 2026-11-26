@@ -9,3 +9,19 @@ test('every event that changes which nights are taken invalidates the cache', ()
     assert.strictEqual(typeof handlers[topic], 'function', `${topic} is not handled`);
   }
 });
+
+test('booking.rejected: a host decline clears the cache; a request that lost the race does not', async () => {
+  const cache = require('../src/cache');
+  const original = cache.invalidateProperty;
+  const cleared = [];
+  cache.invalidateProperty = async (id) => { cleared.push(id); };
+  try {
+    const rejected = (newStatus) => ({ event_type: 'booking.rejected', trace_id: 't', payload: { property_id: 'prp_1', new_status: newStatus } });
+    await handlers['booking.rejected'](rejected('REJECTED'), { topic: 'booking.rejected' });
+    assert.deepStrictEqual(cleared, []);
+    await handlers['booking.rejected'](rejected('DECLINED'), { topic: 'booking.rejected' });
+    assert.deepStrictEqual(cleared, ['prp_1']);
+  } finally {
+    cache.invalidateProperty = original;
+  }
+});

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, getSession } from '../../api/client.js';
+import { api } from '../../api/client.js';
+import { useSession } from '../../api/useSession.js';
 import { AMENITIES, CITIES, TYPES, label } from '../guest/Search.jsx';
 
 // Slice 2: a host's own listings: create, edit price, pause, delete, block dates.
@@ -106,16 +107,21 @@ function ListingRow({ listing, onChanged }) {
 }
 
 export default function HostListings() {
-  const session = getSession();
+  const session = useSession(); // re-renders on login, logout or expiry
+  const hostId = session?.role === 'host' ? session.user_id : null;
   const [listings, setListings] = useState(null);
   const [form, setForm] = useState(NEW);
   const [showNew, setShowNew] = useState(false);
   const [msg, setMsg] = useState(null);
 
-  const load = () => api('property', '/properties/search', { host_id: session.user_id, sort: 'newest', page_size: 100 })
+  const load = () => api('property', '/properties/search', { host_id: hostId, sort: 'newest', page_size: 100 })
     .then((r) => setListings(r.items))
     .catch((e) => setMsg(message(e)));
-  useEffect(() => { if (session?.role === 'host') load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Load when a host signs in (or a different host does); forget the list when they sign out.
+  useEffect(() => {
+    if (hostId) load();
+    else setListings(null);
+  }, [hostId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (session?.role !== 'host') return <p className="muted">Log in as a host to manage listings. <Link to="/login">Log in</Link></p>;
 

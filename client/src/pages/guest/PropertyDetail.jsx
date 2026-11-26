@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { api, getSession } from '../../api/client.js';
+import { api } from '../../api/client.js';
+import { useSession } from '../../api/useSession.js';
 import { useLiveUpdates } from '../../api/useLiveUpdates.js';
 import { label } from './Search.jsx';
 
@@ -13,7 +14,8 @@ const overlaps = (a1, a2, b1, b2) => a1 < b2 && b1 < a2; // [start, end) ranges
 export default function PropertyDetail() {
   const { propertyId } = useParams();
   const [params] = useSearchParams();
-  const session = getSession();
+  const session = useSession(); // re-renders on login, logout, expiry or a login in another tab
+  const signedIn = Boolean(session);
   const [p, setP] = useState(null);
   const [calendar, setCalendar] = useState(null);
   const [error, setError] = useState(null);
@@ -22,20 +24,27 @@ export default function PropertyDetail() {
   const [notice, setNotice] = useState(null);
   const [booking, setBooking] = useState(null);
 
+  // The calendar needs a signed-in user, so it loads (or clears) whenever that changes.
   const loadCalendar = useCallback(async () => {
-    if (!session) return;
+    if (!signedIn) {
+      setCalendar(null);
+      return;
+    }
     try {
       setCalendar(await api('property', '/properties/availability', { property_id: propertyId }));
     } catch {
       setCalendar(null);
     }
-  }, [propertyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [propertyId, signedIn]);
+
+  useEffect(() => {
+    loadCalendar();
+  }, [loadCalendar]);
 
   useEffect(() => {
     api('property', '/properties/get', { property_id: propertyId }, { headers: { 'X-View-Source': params.get('check_in') ? 'search' : 'direct' } })
       .then(setP)
       .catch((e) => setError(e.status === 410 ? 'This listing is no longer available.' : e.message));
-    loadCalendar();
   }, [propertyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useLiveUpdates([`property:${propertyId}`], (frame) => {

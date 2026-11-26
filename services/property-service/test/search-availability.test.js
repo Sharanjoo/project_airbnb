@@ -114,6 +114,38 @@ test('search: a host listing their own properties gets the owner view, never cac
   assert.strictEqual(calls.search[1].opts.ownerView, false); // someone else only sees active listings
 }));
 
+test('search: publishes one property.searched event for the geo report, keyed by city', () => withServer(async ({ call, calls }) => {
+  const r = await call('/properties/search', { location: { city: 'San Jose' }, check_in: day(10), check_out: day(12), guests: 2 });
+  assert.strictEqual(r.status, 200);
+  await new Promise((done) => setImmediate(done)); // the publish is fire and forget
+  const sent = calls.published.filter((p) => p.topic === 'property.searched');
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].key, 'San Jose');
+  const { payload, entity, actor_type: actorType } = sent[0].env;
+  assert.strictEqual(entity.entity_type, 'search');
+  assert.strictEqual(actorType, 'system'); // anonymous search
+  assert.deepStrictEqual({ ...payload, search_id: undefined }, {
+    search_id: undefined, city: 'San Jose', check_in: day(10), check_out: day(12), guests: 2, result_count: 1, strategy: 'mysql', cache: 'MISS',
+  });
+  await call('/properties/search', {});
+  await new Promise((done) => setImmediate(done));
+  const anywhere = calls.published.filter((p) => p.topic === 'property.searched')[1];
+  assert.strictEqual(anywhere.key, 'any');
+  assert.strictEqual(anywhere.env.payload.city, null);
+}));
+
+test('search: a host listing their own properties is not counted as a search', () => withServer(async ({ call, calls }) => {
+  await call('/properties/search', { host_id: 'hst_0001' }, HOST);
+  await new Promise((done) => setImmediate(done));
+  assert.strictEqual(calls.published.filter((p) => p.topic === 'property.searched').length, 0);
+}));
+
+test('search: Kafka down never fails or slows the search', () => withServer(async ({ call }) => {
+  const r = await call('/properties/search', { location: { city: 'Napa' } });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.data.total, 1);
+}, { bus: { publish: () => new Promise((resolve, reject) => setTimeout(() => reject(new Error('broker down')), 5000).unref()) } }));
+
 test('search: a strategy failure becomes 503 DEPENDENCY_UNAVAILABLE', () => withServer(async ({ call }) => {
   const r = await call('/properties/search', {}, { 'X-Search-Strategy': 'mongo' });
   assert.strictEqual(r.status, 503);

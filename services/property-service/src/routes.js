@@ -14,6 +14,9 @@ const { STRATEGIES } = require('./search/strategies');
 
 const DEFAULT_STRATEGY = process.env.SEARCH_STRATEGY || 'mysql';
 const PUBLISH_WAIT_MS = Number(process.env.PUBLISH_WAIT_MS || 2000);
+// property.searched feeds the "searches" column of the admin geo report. SEARCH_EVENTS=off
+// turns it off (for example for search load tests that should measure the search alone).
+const SEARCH_EVENTS = process.env.SEARCH_EVENTS !== 'off';
 const today = () => new Date().toISOString().slice(0, 10);
 const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
@@ -167,6 +170,38 @@ function buildRouter({
     }
   }
 
+  /**
+   * One property.searched event per search, for analytics (searches per city in the geo
+   * report). Fire and forget: it never waits for Kafka and never fails or slows the search.
+   * Keyed by city so one city's searches stay in order on one partition.
+   */
+  function publishSearch(req, f, out, strategy) {
+    const searchId = newId('srch');
+    const city = (f.location && f.location.city) || null;
+    const env = createEnvelope({
+      eventType: TOPICS.PROPERTY_SEARCHED,
+      traceId: req.traceId,
+      actorId: req.user ? req.user.id : 'anonymous',
+      actorType: req.user ? req.user.role : 'system',
+      entityType: 'search',
+      entityId: searchId,
+      idempotencyKey: searchId,
+      payload: {
+        search_id: searchId,
+        city,
+        check_in: f.check_in || null,
+        check_out: f.check_out || null,
+        guests: f.guests || null,
+        result_count: out.result.total,
+        strategy,
+        cache: out.cache,
+      },
+    });
+    Promise.resolve()
+      .then(() => bus.publish(TOPICS.PROPERTY_SEARCHED, env, city || 'any'))
+      .catch((err) => logger.warn('search event not published', { trace_id: req.traceId, error: err.message }));
+  }
+
   // ---- create
   r.post('/properties/create', requireRole('host'), validateBody(createSchema), asyncHandler(async (req, res) => {
     const property = { ...req.body, property_id: newId('prp'), host_id: req.user.id };
@@ -270,6 +305,8 @@ function buildRouter({
       throw Errors.dependency(strategy === 'mongo' ? 'MongoDB' : 'MySQL');
     }
     const tookMs = Number(process.hrtime.bigint() - started) / 1e6;
+    // A host listing their own properties is not a guest search, so it is not counted.
+    if (SEARCH_EVENTS && !ownerView) publishSearch(req, f, out, strategy);
     res.set('X-Cache', out.cache);
     return ok(res, { ...out.result, strategy, cache: out.cache, took_ms: Math.round(tookMs * 10) / 10 });
   }));
