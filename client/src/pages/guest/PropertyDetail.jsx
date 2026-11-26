@@ -40,11 +40,14 @@ export default function PropertyDetail() {
 
   useLiveUpdates([`property:${propertyId}`], (frame) => {
     if (!['availability.changed', 'booking.confirmed', 'booking.cancelled', 'booking.rejected'].includes(frame.type)) return;
-    const latency = frame.sent_at ? Math.max(0, Date.now() - Date.parse(frame.sent_at)) : null;
+    // 13.4 latency: from the event itself (booking worker / property service publishing it)
+    // to this update on screen, through Kafka and the notification gateway
+    const since = frame.event_at || frame.sent_at;
+    const latency = since ? Math.max(0, Date.now() - Date.parse(since)) : null;
     loadCalendar();
     const pl = frame.payload || {};
     const hit = stay.check_in && stay.check_out && pl.check_in && pl.check_out && overlaps(stay.check_in, stay.check_out, pl.check_in, pl.check_out);
-    setNotice(`${hit ? 'Your dates are no longer available.' : 'Availability just changed.'}${latency !== null ? ` (update arrived in ${latency} ms)` : ''}`);
+    setNotice(`${hit ? 'Your dates are no longer available.' : 'Availability just changed.'}${latency !== null ? ` (shown ${latency} ms after the change)` : ''}`);
   });
 
   const blocked = calendar?.unavailable.filter((u) => stay.check_in && stay.check_out && overlaps(stay.check_in, stay.check_out, u.start_date, u.end_date)) || [];
