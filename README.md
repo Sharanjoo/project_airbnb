@@ -121,6 +121,8 @@ npm run gen:properties                       # the fixed 200-property pool (AI b
 npm run gen:properties -- --count 10000 --mongo   # bigger dataset + MongoDB read model for search experiments
 npm run bench:search -- --strategy mysql --cache off   # search benchmark, results in tests/load/results/
 npm run demo:cache                           # 13.9 demo: MISS, HIT, price change, fresh MISS
+npm run demo:realtime                        # 13.4 demo: live 'dates no longer available' push and its latency
+npm run demo:activity                        # real activity for the dashboards (-- --cleanup removes it)
 ```
 
 Design notes for properties, search, availability and caching: [docs/slice2-properties-search.md](docs/slice2-properties-search.md).

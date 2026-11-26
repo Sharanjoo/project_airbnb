@@ -53,10 +53,34 @@ event never went out.
 The flow: booking worker publishes `booking.confirmed` (or `availability.changed`)
 → the notification gateway consumes it (`notify-cg`) → it pushes a frame to every
 socket subscribed to the right channel → the listing page (slice 2) reloads the
-calendar and shows "Your dates are no longer available". The frame carries
-`sent_at`, so the page shows the delivery latency ("update arrived in N ms").
-A stale booking cannot succeed anyway, because the booking worker's night claim
-rejects it with `DATE_CONFLICT` (slice 3).
+calendar, shows "Your dates are no longer available" and disables the booking
+button. A stale booking cannot succeed anyway: if the guest sends it, the API
+accepts it (202) and the booking worker's night claim rejects it with
+`DATE_CONFLICT` (slice 3).
+
+**Latency, measured from the event.** Every frame carries `event_at` (the event's
+own timestamp, set by the producer) and `sent_at` (when the gateway pushed it).
+The page shows the time from `event_at` to the update on screen ("shown N ms after
+the change"), so the number covers Kafka, the gateway's consumer and the push, as
+13.4 asks. `npm run demo:realtime` measures it without a browser: a viewer watches
+`property:prp_0002` while another guest books and the host approves, then cancels,
+in repeated rounds. On the test laptop (2026-11-25, everything on one machine):
+
+| | Pushes | p50 | p95 | max |
+|---|---:|---:|---:|---:|
+| Event → viewer (`booking.confirmed`, `booking.cancelled`) | 20 | 1 ms | 2 ms | 2 ms |
+| of which gateway → viewer | 20 | 0 ms | 1 ms | |
+| On the listing page, in the browser | 2 | 3–4 ms | | |
+
+The containers' clock is compared with the client's through MySQL `NOW(3)` and
+corrected; that comparison is good to about ±2 ms, so these values are
+approximate. They are small because Kafka, the gateway and the viewer share one
+machine; across a network the push adds the network round trip.
+
+One cold-start effect matters for the demo: right after the notification gateway
+(re)starts, its consumer group is still forming, and the first push took about
+13 s. The demo script runs one uncounted warm-up round for this reason; before a
+live 13.4 demo, book and cancel once (or run the script) first.
 
 Channels: `user:<id>` (your own pushes), `property:<id>` (anyone viewing a
 listing) and `task:<id>` (an AI task). Pushed topics: `booking.requested`,
@@ -139,6 +163,17 @@ rejected-envelope count.
   takes a `trace_id` (also as `?trace_id=` in the URL) to show one journey end to
   end during the demo.
 
+**Data for the demo.** A fresh database shows zeros, because nothing is sampled.
+`npm run demo:activity` makes 8 demo guests use the app through the gateway:
+views and saves, booking requests that the seed host `hst_0001` approves,
+declines or cancels, messages with replies, and AI recommendations that are
+approved or rejected. Some stays start today so occupancy and revenue show in the
+default 30-day range. `npm run demo:activity -- --cleanup` removes all of it.
+
+**Dates.** The range pickers hold the viewer's local days; the client sends the
+local start of `from` and end of `to` as timestamps, so "today" means the
+viewer's today. Daily charts are grouped by UTC day.
+
 Chosen: plain SVG charts with no chart library, a hover tooltip and a table view
 on every chart, so no value depends on colour or hover alone. Rejected: adding a
 charting dependency, which would change the shared `package.json` and lockfile.
@@ -153,12 +188,24 @@ The trade-off is a small amount of chart code to maintain (`charts.jsx`).
   the shared trace helper in `packages/common`, which is proposed but not yet
   agreed. Until then traces are built from Kafka events.
 - A WebSocket that drops is not reconnected automatically yet (`useLiveUpdates.js`).
+- Differences from the API doc:
+  - The notification gateway is one process with its subscriptions in memory, not
+    Redis pub/sub. Running several gateway instances would need Redis pub/sub so
+    a push reaches sockets on every instance.
+  - The review prompt reaches the guest through the notification gateway
+    (`booking.completed` on `user:<id>`); the review service does not consume
+    `booking.completed` itself.
+- The rating trend and reviews need a COMPLETED stay, which only the booking
+  scheduler produces after checkout, so `demo:activity` cannot create them.
 
 ## Performance report
 
-The JMeter plans for the §9 experiments go in `tests/load/`, with results in
-`tests/load/results/`. This section will hold the configuration, graphs and
-findings once the runs are done.
+The §9 report is `docs/performance-report.md`, with the JMeter plans and scripts
+in `tests/load/` (how to rerun each experiment: `tests/load/README.md`). In short:
+search levels off at about 1,150 requests/s; the Redis cache gives 3.3× at the
+property service but the single gateway process caps it end to end; nothing was
+lost in the booking, scaling and failure tests; three booking workers drain 1.8×
+faster than one (MySQL is the limit).
 
 ## Run it
 
@@ -179,4 +226,11 @@ npm test -w services/review-service -w services/analytics-service -w services/no
 ```
 
 Dashboards: `/dashboards/guest`, `/dashboards/host` and `/dashboards/platform`
-(admin) in the client.
+(admin) in the client. With the stack running:
+
+```bash
+npm run demo:activity
+```
+```bash
+npm run demo:realtime
+```
