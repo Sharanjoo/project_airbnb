@@ -52,6 +52,59 @@ async function call(service, path, body, { token, headers = {} } = {}) {
 
 const describe = (r) => `${r.status} ${JSON.stringify(r.body?.error || r.body?.data || r.body)}`;
 
+async function getJson(path, token) {
+  const res = await fetch(`${GATEWAY}/api/v1/${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+// ---- Admin account (npm run admin:create): uses the same setup code with a throwaway admin
+// and a random password, so it needs no secret and never touches the real admin. Removed after.
+async function adminChecks({ run, hs, gs }) {
+  console.log('\nAdmin account and dashboards');
+  const analyticsUp = !(await waitFor(`http://localhost:${process.env.ANALYTICS_SERVICE_PORT || 8006}/health`, Date.now() + 5000));
+  const { ensureAdmin } = require('../services/user-service/src/adminSetup');
+  const { getMysql } = require('@airbnb/common');
+  const email = `smoke-admin-${run}@example.com`;
+  const password = `Smoke-admin-${randomUUID()}`;
+  let hostId;
+  try {
+    const created = await ensureAdmin({ email, name: 'Smoke Admin', getPassword: async () => password });
+    hostId = created.host_id;
+    check(created.outcome === 'created', `throwaway admin created ${hostId}`);
+    const again = await ensureAdmin({ email, name: 'Smoke Admin', getPassword: async () => { throw new Error('asked'); } });
+    check(again.outcome === 'exists', 'second run: exists, nothing changed, no password asked');
+
+    const login = await call('user', '/auth/login', { email, password, role: 'host' });
+    const as = login.body?.data;
+    check(login.status === 200 && as?.role === 'admin' && as.user_id === hostId, 'admin logs in as Host and gets role "admin"', describe(login));
+    const decoded = jwt.decode(as?.token || '') || {};
+    check(decoded.sub === hostId && decoded.role === 'admin', 'JWT claims are still just sub and role');
+
+    const search = await call('user', '/guests/search', { page_size: 1 }, { token: as?.token });
+    check(search.status === 200, 'admin guest search -> 200', describe(search));
+    const hostSearch = await call('user', '/guests/search', { page_size: 1 }, { token: hs.token });
+    check(hostSearch.status === 403, 'ordinary host guest search -> 403', describe(hostSearch));
+
+    if (!analyticsUp) {
+      console.log('  SKIP  dashboard checks: analytics-service is not running (docker compose up -d --build, or npm run dev:analytics)');
+      return;
+    }
+    for (const [name, path] of [['Platform', 'analytics/analytics/platform'], ['AI', 'analytics/analytics/ai']]) {
+      const r = await getJson(path, as?.token);
+      check(r.status === 200 && r.body?.data, `${name} dashboard data (GET /${path.slice(10)}) as admin -> 200`, describe(r));
+      for (const [who, token] of [['host', hs.token], ['guest', gs.token]]) {
+        const denied = await getJson(path, token);
+        check(denied.status === 403, `${name} dashboard data as an ordinary ${who} -> 403`, describe(denied));
+      }
+      const anon = await getJson(path);
+      check(anon.status === 401, `${name} dashboard data without a token -> 401`, describe(anon));
+    }
+  } finally {
+    if (hostId) await getMysql().execute('DELETE FROM hosts WHERE host_id = ?', [hostId]).catch(() => {});
+    await getMysql().end().catch(() => {});
+  }
+}
+
 async function main() {
   console.log('Health checks');
   const deadline = Date.now() + WAIT_MS;
@@ -229,6 +282,8 @@ async function main() {
     const stillMe = await call('user', '/guests/get', { guest_id: gs.user_id }, { token: gs.token });
     check(stillMe.status === 200, 'other active guests are unaffected', describe(stillMe));
   }
+
+  await adminChecks({ run, hs, gs });
 
   // Tidy up: pause the test listing so it does not show up in demo searches (13.8 / 13.9).
   const pause = await call('property', '/properties/update',

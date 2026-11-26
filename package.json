@@ -35,6 +35,7 @@
     "smoke": "node scripts/smoke.js",
     "smoke:auth": "node scripts/smoke-auth.js",
     "smoke:messaging": "node scripts/smoke-messaging.js",
+    "admin:create": "node --env-file-if-exists=.env scripts/create-admin.js",
     "gen:properties": "node scripts/generate-properties.js",
     "bench:search": "node scripts/bench-search.js",
     "demo:cache": "node scripts/demo-cache.js",
