@@ -66,8 +66,15 @@ async function adminChecks({ run, hs, gs }) {
   const { getMysql } = require('@airbnb/common');
   const email = `smoke-admin-${run}@example.com`;
   const password = `Smoke-admin-${randomUUID()}`;
+  // Only throwaway smoke admins match this: removed at the start (left by an interrupted earlier
+  // run) and in `finally` (by email, so even a failure right after the insert leaves nothing behind).
+  const removeSmokeAdmins = (pattern) => getMysql().execute(
+    "DELETE FROM hosts WHERE email LIKE ? AND access_level = 'admin' AND name = 'Smoke Admin'", [pattern],
+  );
   let hostId;
   try {
+    const [stale] = await removeSmokeAdmins('smoke-admin-%@example.com');
+    if (stale.affectedRows) console.log(`  note  removed ${stale.affectedRows} throwaway admin(s) left by an earlier run`);
     const created = await ensureAdmin({ email, name: 'Smoke Admin', getPassword: async () => password });
     hostId = created.host_id;
     check(created.outcome === 'created', `throwaway admin created ${hostId}`);
@@ -100,7 +107,13 @@ async function adminChecks({ run, hs, gs }) {
       check(anon.status === 401, `${name} dashboard data without a token -> 401`, describe(anon));
     }
   } finally {
-    if (hostId) await getMysql().execute('DELETE FROM hosts WHERE host_id = ?', [hostId]).catch(() => {});
+    try {
+      await removeSmokeAdmins(email);
+      const [[left]] = await getMysql().execute('SELECT COUNT(*) AS n FROM hosts WHERE email = ?', [email]);
+      check(left.n === 0, 'throwaway admin removed');
+    } catch (err) {
+      bad(`could not remove the throwaway admin ${email}: ${err.code || err.message}. Delete it by hand.`);
+    }
     await getMysql().end().catch(() => {});
   }
 }
@@ -283,12 +296,13 @@ async function main() {
     check(stillMe.status === 200, 'other active guests are unaffected', describe(stillMe));
   }
 
-  await adminChecks({ run, hs, gs });
-
   // Tidy up: pause the test listing so it does not show up in demo searches (13.8 / 13.9).
   const pause = await call('property', '/properties/update',
     { property_id: propertyId, version: listing.body.data.version, status: 'inactive' }, { token: hs.token });
   check(pause.status === 200 && pause.body.data.status === 'inactive', 'test listing set to inactive', describe(pause));
+
+  // Last, so a failure here cannot skip the tidy-up above. Cleans up its own admin either way.
+  await adminChecks({ run, hs, gs });
 }
 
 main().catch((e) => bad(e.stack || e.message));

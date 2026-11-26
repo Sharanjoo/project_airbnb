@@ -118,7 +118,10 @@ Ordinary guests and hosts get `403` on the admin-only endpoints, and requests wi
   - Deleted host and guest emails are refused; two concurrent runs create one row.
   - The real command in a child process: create, repeat, no terminal, refusal.
 - **`npm run smoke:auth`**, section "Admin account and dashboards". It creates a throwaway admin with a
-  random password and deletes it afterwards, so it needs no secret. Through the real gateway:
+  random password, so it needs no secret. It deletes that admin by its unique email in a `finally`
+  block, so a failed check still cleans up, and first removes any throwaway admin an interrupted
+  earlier run left behind (only rows named "Smoke Admin" with a `smoke-admin-…@example.com` email).
+  Through the real gateway:
   - Admin login gives `role: admin`.
   - Platform and AI dashboard data answer 200 for the admin, 403 for an ordinary host and guest, and 401 without a token.
   - Admin guest search is 200, and 403 for a host.
