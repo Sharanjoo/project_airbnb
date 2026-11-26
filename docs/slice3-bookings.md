@@ -121,8 +121,12 @@ offsets, database counts and worker log lines.
 - HTTP: booking calls need an `Idempotency-Key` header. The same key with the
   same request returns the first answer. The same key with a different request
   returns 409 IDEMPOTENCY_KEY_REUSED. Keys are kept for 24 hours.
+- A key belongs to whoever used it first. Another user sending the same key gets 409
+  IDEMPOTENCY_KEY_REUSED. A retry with the same key is answered from the stored
+  record before the date check, so it still works after midnight UTC.
 - The reservation id is built from the key, so two simultaneous calls with the
-  same key get the same id and the worker applies it once.
+  same key get the same id and the worker applies it once. It also lets a pending
+  booking be found by primary key, with no table scan.
 - Kafka: the worker stores (consumer group, idempotency key) in the same
   transaction as its change.
 - A guest asking again for the same property and dates while the first request is

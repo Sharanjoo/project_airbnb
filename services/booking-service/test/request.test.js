@@ -17,8 +17,8 @@ function fakeRepo(overrides = {}) {
       id === 'prp_0001' ? { property_id: id, host_id: 'hst_0001', status: 'active', capacity: 3, nightly_price: '189.00', cleaning_fee: '40.00' } : null,
     findActiveDuplicate: async () => null,
     findIdempotentResponse: async (k) => saved.get(k) || null,
-    saveIdempotentResponse: async (k, fp, status, body) =>
-      saved.set(k, { request_hash: hashBody(fp), response_status: status, response_body: body }),
+    saveIdempotentResponse: async (k, fp, status, body, actor) =>
+      saved.set(k, { request_hash: hashBody(fp), response_status: status, response_body: body, actor_id: actor }),
     ...overrides,
   };
 }
@@ -77,6 +77,33 @@ test('same Idempotency-Key with a different body returns 409 IDEMPOTENCY_KEY_REU
     const res = await post(base, '/bookings/request', { ...goodBody(), guest_count: 3 });
     assert.strictEqual(res.status, 409);
     assert.strictEqual((await res.json()).error.code, 'IDEMPOTENCY_KEY_REUSED');
+    assert.strictEqual(published.length, 1);
+  } finally { server.close(); }
+});
+
+test('a retry with the same key after the dates have passed still returns the first answer', async () => {
+  const published = [];
+  const { server, base } = await start(fakeRepo(), { publish: async (t, e) => published.push(e) });
+  try {
+    const first = await post(base, '/bookings/request', goodBody());
+    assert.strictEqual(first.status, 202);
+    const stale = { ...goodBody(), check_in: '2020-01-01', check_out: '2020-01-03' };
+    const again = await post(base, '/bookings/request', stale);
+    assert.strictEqual(again.status, 409); // a different request with the same key, not a date error
+    const same = await post(base, '/bookings/request', goodBody());
+    assert.strictEqual(same.status, 202);
+    assert.strictEqual(published.length, 1);
+  } finally { server.close(); }
+});
+
+test('a key first used by one guest returns 409 for another guest, never the first answer', async () => {
+  const published = [];
+  const { server, base } = await start(fakeRepo(), { publish: async (t, e) => published.push(e) });
+  try {
+    assert.strictEqual((await post(base, '/bookings/request', goodBody())).status, 202);
+    const other = await post(base, '/bookings/request', goodBody(), { 'X-User-Id': 'gst_0002' });
+    assert.strictEqual(other.status, 409);
+    assert.strictEqual((await other.json()).error.code, 'IDEMPOTENCY_KEY_REUSED');
     assert.strictEqual(published.length, 1);
   } finally { server.close(); }
 });

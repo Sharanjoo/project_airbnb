@@ -33,7 +33,7 @@ async function findActiveDuplicate(guestId, propertyId, checkIn, checkOut) {
 
 async function findIdempotentResponse(key) {
   const [rows] = await getMysql().execute(
-    `SELECT request_hash, response_status, response_body FROM idempotency_keys
+    `SELECT request_hash, response_status, response_body, actor_id FROM idempotency_keys
      WHERE idempotency_key = ? AND created_at > NOW(3) - INTERVAL 24 HOUR`,
     [key],
   );
@@ -257,14 +257,20 @@ async function listStatusHistory(reservationId) {
  * Idempotency-Key record. This lets /bookings/get answer PENDING.
  */
 async function findPendingReservation(reservationId) {
+  // The reservation id is res_ plus the Idempotency-Key without dashes, so the key is
+  // rebuilt from the id and read by primary key. No scan of the table is needed.
+  const hex = /^res_([0-9a-f]{32})$/i.exec(reservationId || '')?.[1];
+  if (!hex) return null;
+  const key = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   await ensureSchema();
   const [rows] = await getMysql().execute(
-    `SELECT actor_id FROM idempotency_keys
-     WHERE JSON_UNQUOTE(JSON_EXTRACT(response_body, '$.data.reservation_id')) = ?
-       AND JSON_UNQUOTE(JSON_EXTRACT(response_body, '$.data.status')) = 'PENDING' LIMIT 1`,
-    [reservationId],
+    `SELECT actor_id, response_body FROM idempotency_keys
+     WHERE idempotency_key = ? AND created_at > NOW(3) - INTERVAL 24 HOUR`,
+    [key],
   );
-  return rows[0] ? { reservation_id: reservationId, status: 'PENDING', owner_id: rows[0].actor_id } : null;
+  const data = rows[0] && (typeof rows[0].response_body === 'string' ? JSON.parse(rows[0].response_body) : rows[0].response_body)?.data;
+  if (!data || data.reservation_id !== reservationId || data.status !== 'PENDING') return null;
+  return { reservation_id: reservationId, status: 'PENDING', owner_id: rows[0].actor_id };
 }
 
 async function findPropertyOwner(propertyId) {
