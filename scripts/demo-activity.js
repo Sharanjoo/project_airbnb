@@ -16,8 +16,14 @@
 // are in the coming weeks (set To later on the host dashboard to include them).
 // Remove it before `npm run test:db`: its bookings hold prp_0001/prp_0002 for the coming
 // weeks, so the booking service's scheduler tests would hit DATE_CONFLICT.
-// Not covered: reviews and the rating trend need a COMPLETED stay, which only the booking
-// scheduler produces after checkout; searches are not published as events.
+// Reviews need a COMPLETED stay, which only the booking scheduler produces after check-out,
+// and the booking API only accepts future dates. So step 5 inserts two stays that already
+// ended directly into MySQL (CONFIRMED, with their nights and status history) on prp_0002,
+// the seed listing with no reviews. The third is left unreviewed so a review can be written
+// live in the demo (My trips, Past). Everything after that is the real flow: the scheduler
+// completes them and announces booking.completed, the guests review through the API, the
+// host responds, and the property worker recomputes the listing's rating.
+// Not covered: searches are not published as events.
 const { randomUUID } = require('crypto');
 const path = require('path');
 const jwt = require('jsonwebtoken');
@@ -35,6 +41,7 @@ const GUESTS = Array.from({ length: 8 }, (_, i) => `gst_demo_act${String(i + 1).
 const HOST = 'hst_0001';
 const LISTINGS = ['prp_0001', 'prp_0002'];
 const AI_GUESTS = GUESTS.slice(0, 3);
+const REVIEWED = 'prp_0002'; // seed listing with no reviews, so its rating can be put back exactly
 const AI_REQUESTS = [
   'A quiet place for 2 in San Jose with parking and wifi, under $250 a night',
   'Family trip to San Jose, 4 guests, kitchen and washer',
@@ -72,10 +79,13 @@ async function main() {
     const tasks = await mongo.collection('ai_tasks').find({ user_id: { $in: GUESTS } }, { projection: { trace_id: 1 } }).toArray();
     const aiTraces = tasks.map((t) => t.trace_id);
     const threads = (await mongo.collection('threads').find({ guest_id: { $in: GUESTS } }, { projection: { _id: 1 } }).toArray()).map((t) => t._id);
+    const reviews = await mongo.collection('reviews').find({ guest_id: { $in: GUESTS } }, { projection: { review_id: 1, property_id: 1 } }).toArray();
+    const reviewIds = reviews.map((r) => r.review_id);
     const evFilter = {
       $or: [
         { actor_id: { $in: GUESTS } }, { 'payload.guest_id': { $in: GUESTS } }, { 'payload.user_id': { $in: GUESTS } },
         { 'payload.reservation_id': { $in: resIds } }, { 'payload.thread_id': { $in: threads } }, { trace_id: { $in: aiTraces } },
+        { 'payload.review_id': { $in: reviewIds } }, // review.responded names neither guest nor reservation
       ],
     };
     const found = await mongo.collection('events').find(evFilter, { projection: { event_id: 1, trace_id: 1 } }).toArray();
@@ -90,6 +100,17 @@ async function main() {
     if (resIds.length) await q('DELETE FROM idempotency_keys WHERE actor_id = ? AND response_body REGEXP ?', [HOST, resIds.join('|')]);
     await q('DELETE FROM saved_properties WHERE guest_id IN (?)', [GUESTS]);
     const [g] = await db.query('DELETE FROM guests WHERE guest_id IN (?)', [GUESTS]);
+    await mongo.collection('reviews').deleteMany({ review_id: { $in: reviewIds } });
+    // put each reviewed listing's rating back to what its remaining reviews give, the same
+    // computation as the property worker (MySQL and the Mongo search copy)
+    for (const pid of [...new Set(reviews.map((r) => r.property_id))]) {
+      const [agg] = await mongo.collection('reviews').aggregate([{ $match: { property_id: pid } },
+        { $group: { _id: null, avg: { $avg: '$rating' }, n: { $sum: 1 } } }]).toArray();
+      const rating = agg ? Math.round(agg.avg * 100) / 100 : null;
+      const count = agg ? agg.n : 0;
+      await q('UPDATE properties SET rating = ?, review_count = ? WHERE property_id = ?', [rating, count, pid]);
+      await mongo.collection('property_search').updateOne({ _id: pid }, { $set: { rating, review_count: count } });
+    }
     await mongo.collection('messages').deleteMany({ thread_id: { $in: threads } });
     await mongo.collection('threads').deleteMany({ _id: { $in: threads } });
     await mongo.collection('debate_messages').deleteMany({ trace_id: { $in: aiTraces } });
@@ -97,13 +118,13 @@ async function main() {
     await mongo.collection('ai_tasks').deleteMany({ user_id: { $in: GUESTS } });
     const ev = await mongo.collection('events').deleteMany(evFilter);
     await mongo.collection('traces').deleteMany({ trace_id: { $in: traceIds } }); // consumers' trace steps
-    return { guests: g.affectedRows, reservations: resIds.length, events: ev.deletedCount, threads: threads.length, aiTasks: tasks.length };
+    return { guests: g.affectedRows, reservations: resIds.length, events: ev.deletedCount, threads: threads.length, aiTasks: tasks.length, reviews: reviewIds.length };
   }
 
   try {
     const removed = await cleanup();
     if (process.argv.includes('--cleanup')) {
-      console.log(`removed: ${removed.guests} demo guests, ${removed.reservations} reservations, ${removed.threads} threads, ${removed.aiTasks} AI tasks, ${removed.events} events`);
+      console.log(`removed: ${removed.guests} demo guests, ${removed.reservations} reservations, ${removed.reviews} reviews, ${removed.threads} threads, ${removed.aiTasks} AI tasks, ${removed.events} events`);
       return;
     }
     const hash = (await q("SELECT password_hash FROM guests WHERE guest_id = 'gst_0001'"))[0].password_hash;
@@ -193,12 +214,57 @@ async function main() {
     }
     check(decided === AI_GUESTS.length, `${decided} AI recommendations decided (${decisions.join(', ')})`);
 
+    step('Step 5: three stays that ended (inserted directly, see the top of this file); the scheduler completes them, two guests review, the host responds');
+    const ended = [
+      { guest: GUESTS[3], from: -8, to: -6, rating: 5, text: 'Lovely cottage, spotless and very quiet. The garden was a treat.', reply: 'Thank you, Dev! Come back any time.' },
+      { guest: GUESTS[4], from: -5, to: -3, rating: 4, text: 'Great location and kitchen. Parking was a little tight.', reply: 'Thanks, Ema. We will mark the parking spot more clearly.' },
+      { guest: GUESTS[5], from: -12, to: -10, live: true }, // left unreviewed: write this review live in the demo
+    ];
+    const pastPrice = (await q('SELECT nightly_price, cleaning_fee FROM properties WHERE property_id = ?', [REVIEWED]))[0];
+    for (const e of ended) {
+      const id = `res_${randomUUID().replace(/-/g, '')}`;
+      const nights = e.to - e.from;
+      const subtotal = Number(pastPrice.nightly_price) * nights;
+      const fees = Number(pastPrice.cleaning_fee);
+      const total = Math.round((subtotal + fees) * 1.22 * 100) / 100; // + 10% service fee and 12% taxes, as the API prices it
+      const traceId = randomUUID();
+      e.id = id;
+      await q(`INSERT INTO reservations (reservation_id, property_id, guest_id, host_id, check_in, check_out, guest_count, price_breakdown,
+        total_price, booking_datetime, status, trace_id) VALUES (?, ?, ?, ?, ?, ?, 2, ?, ?, ?, 'CONFIRMED', ?)`,
+      [id, REVIEWED, e.guest, HOST, day(e.from), day(e.to), JSON.stringify({ nights, nightly_price: Number(pastPrice.nightly_price), subtotal, cleaning_fee: fees, total, currency: 'USD' }),
+        total, `${day(e.from - 14)} 10:00:00`, traceId]);
+      for (let n = e.from; n < e.to; n++) await q('INSERT INTO reservation_nights (property_id, night, reservation_id) VALUES (?, ?, ?)', [REVIEWED, day(n), id]);
+      await q('INSERT INTO reservation_status_history (reservation_id, from_status, to_status, actor_id, trace_id, at) VALUES (?, NULL, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)',
+        [id, 'REQUESTED', e.guest, traceId, `${day(e.from - 14)} 10:00:00`, id, 'REQUESTED', 'CONFIRMED', HOST, traceId, `${day(e.from - 13)} 09:00:00`]);
+    }
+    console.log('  waiting for the booking scheduler (it runs every minute)…');
+    for (const e of ended) e.status = await waitStatus(e.id, ['COMPLETED'], 120);
+    check(ended.every((e) => e.status === 'COMPLETED'), `the scheduler completed all ${ended.length} stays: ${ended.map((e) => e.status).join(', ')}`);
+    let reviewed = 0;
+    const toReview = ended.filter((e) => !e.live);
+    for (const e of toReview) {
+      const r = await api('review', '/reviews/create', e.guest, 'guest', { reservation_id: e.id, rating: e.rating, review_text: e.text,
+        sub_ratings: { cleanliness: e.rating, accuracy: e.rating, communication: 5, location: 5, value: e.rating } });
+      const reviewId = r.data && r.data.review_id;
+      const reply = reviewId ? await api('review', '/reviews/respond', HOST, 'host', { review_id: reviewId, response_text: e.reply }) : { status: r.status };
+      if (r.status === 201 && reply.status === 200) reviewed++;
+      else check(false, `${e.guest}: review ${r.status} ${r.error ? r.error.code : ''}, response ${reply.status}`);
+    }
+    let rated;
+    for (const until = Date.now() + 15000; Date.now() < until; await sleep(300)) {
+      rated = (await q('SELECT rating, review_count FROM properties WHERE property_id = ?', [REVIEWED]))[0];
+      if (rated.review_count === toReview.length) break;
+    }
+    check(reviewed === toReview.length && rated.review_count === toReview.length,
+      `${reviewed} reviews with host responses; ${REVIEWED} is now rated ${rated.rating} from ${rated.review_count} reviews`);
+
     await sleep(2000); // let the analytics consumer store the last events
     const stored = await mongo.collection('events').countDocuments({ $or: [{ actor_id: { $in: [...GUESTS, HOST] } }, { 'payload.guest_id': { $in: GUESTS } }] });
     check(stored > 0, `${stored} events stored by the analytics consumer so far`);
     step('Where to look');
     console.log(`  host dashboard:     log in as the seed host (hst_0001), Dashboard`);
     console.log(`  guest dashboard:    log in as ${GUESTS[0]}@demo.invalid (seed guest password), Dashboard`);
+    console.log(`  write a review live: log in as ${GUESTS[5]}@demo.invalid, My trips, Past (a finished stay is waiting)`);
     console.log('  platform and AI:    an admin account, /dashboards/platform');
     console.log('  remove it all:      npm run demo:activity -- --cleanup');
   } finally {
