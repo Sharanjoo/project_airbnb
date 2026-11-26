@@ -1,7 +1,7 @@
 # Contributions
 
 Spec §12 asks for a page mapping every vertical slice to an owner and repository
-commits. Everything below comes from the git history of `main` (up to `5fdf501`,
+commits. Everything below comes from the git history of `main` (up to `09fe82f`,
 2026-11-26) and the pull requests on GitHub; the commands at the end regenerate the
 numbers. Each owner should check their own row and add anything the history cannot
 show (see "Not in the repository").
@@ -13,7 +13,7 @@ show (see "Not in the repository").
 | 1. Users, auth, gateway, messaging | Farzaan ([@farzaandalwai](https://github.com/farzaandalwai)) | Guest and host sign-up and login, JWT at the gateway (refusing deleted accounts' tokens), profiles with optimistic locking, Kafka-driven guest counters, messaging service and the booking-to-thread worker, Login and Messages pages | [#3](https://github.com/Sharanjoo/project_airbnb/pull/3), [#4](https://github.com/Sharanjoo/project_airbnb/pull/4), [#5](https://github.com/Sharanjoo/project_airbnb/pull/5) | 7 | +5,466 / −179 |
 | 2. Properties, search, availability | Sharan ([@Sharanjoo](https://github.com/Sharanjoo)) | Property service: listings, MySQL and MongoDB search strategies (13.8), availability with version checks (13.3), Redis cache and invalidation (13.9), search events for the geo report; Search, PropertyDetail and HostListings pages | [#1](https://github.com/Sharanjoo/project_airbnb/pull/1), [#2](https://github.com/Sharanjoo/project_airbnb/pull/2), [#17](https://github.com/Sharanjoo/project_airbnb/pull/17) | 6 (+1 skeleton) | +3,089 / −106 |
 | 3. Bookings and reliability | Prajeet ([@villyalsriprajeet-cmd](https://github.com/villyalsriprajeet-cmd)) | Booking API and worker: request, approve, decline, cancel, the night-claim that prevents double booking (13.1), idempotency, the scheduler (expire and complete), recovery after a consumer restart (13.2) with demos; My trips and Reservation requests pages | [#9](https://github.com/Sharanjoo/project_airbnb/pull/9), [#18](https://github.com/Sharanjoo/project_airbnb/pull/18) | 16 | +3,649 / −329 |
-| 4. Reviews, analytics, real time, load tests | Timothy ([@TimothyYSong](https://github.com/TimothyYSong)) | Review service, analytics service (dashboard endpoints, traces), guest, host and platform/AI dashboards, notification gateway authorization and 13.4 latency, trace steps in the shared consumer, JMeter load tests and the performance report (§9), demo scripts | [#6](https://github.com/Sharanjoo/project_airbnb/pull/6), [#7](https://github.com/Sharanjoo/project_airbnb/pull/7), [#11](https://github.com/Sharanjoo/project_airbnb/pull/11), [#13](https://github.com/Sharanjoo/project_airbnb/pull/13), [#14](https://github.com/Sharanjoo/project_airbnb/pull/14), [#15](https://github.com/Sharanjoo/project_airbnb/pull/15) | 25 | +6,048 / −685 |
+| 4. Reviews, analytics, real time, load tests | Timothy ([@TimothyYSong](https://github.com/TimothyYSong)) | Review service, analytics service (dashboard endpoints, traces), guest, host and platform/AI dashboards, notification gateway authorization and 13.4 latency, trace steps in the shared consumer, JMeter load tests and the performance report (§9), demo scripts | [#6](https://github.com/Sharanjoo/project_airbnb/pull/6), [#7](https://github.com/Sharanjoo/project_airbnb/pull/7), [#11](https://github.com/Sharanjoo/project_airbnb/pull/11), [#13](https://github.com/Sharanjoo/project_airbnb/pull/13), [#14](https://github.com/Sharanjoo/project_airbnb/pull/14), [#15](https://github.com/Sharanjoo/project_airbnb/pull/15), [#16](https://github.com/Sharanjoo/project_airbnb/pull/16), [#19](https://github.com/Sharanjoo/project_airbnb/pull/19) | 29 | +6,194 / −714 |
 | 5. AI agent service | Kavan ([@Kavan1804](https://github.com/Kavan1804)) | FastAPI AI service: task store, parser, matching, risk and fairness agents, the Chair's debate rounds, disagreement and votes, WebSocket stream, human approval, feedback and config versions (13.10, 13.11) | [#8](https://github.com/Sharanjoo/project_airbnb/pull/8), [#10](https://github.com/Sharanjoo/project_airbnb/pull/10) | 3 | +4,145 / −162 |
 
 \* Lines from `git log --numstat` on `main`, without `package-lock.json`, generated
@@ -30,8 +30,7 @@ then filled in. It is not counted in Sharan's slice 2 row above.
 
 | PR | Owner | What |
 |---|---|---|
-| [#16](https://github.com/Sharanjoo/project_airbnb/pull/16) | Timothy | Finished stays and reviews in `npm run demo:activity`, so reviews can be demoed |
-| [#19](https://github.com/Sharanjoo/project_airbnb/pull/19) | Timothy | Slice 4 follow-ups from the reviews |
+| [#20](https://github.com/Sharanjoo/project_airbnb/pull/20) | Timothy | This contributions page |
 | `slice5/page-integration` (branch, no PR yet) | Kavan | AI page in the client and the `PROPERTY_SERVICE_URL` fix |
 
 ## Work across slices
@@ -128,7 +127,7 @@ The git history does not show these. Owners, please fill in who did what:
 </details>
 
 <details>
-<summary>Timothy (25)</summary>
+<summary>Timothy (29)</summary>
 
 | Commit | Date | Subject |
 |---|---|---|
@@ -157,6 +156,10 @@ The git history does not show these. Owners, please fill in who did what:
 | `1977e1a` | 2026-11-25 | demo:activity cleanup also removes trace steps; warn before test:db |
 | `4899ba6` | 2026-11-25 | Load tests: clean up trace steps; note the trace-step overhead in the report |
 | `31299a3` | 2026-11-25 | Add the consumer-groups comparison (spec 9, experiment 4) |
+| `cd5f14d` | 2026-11-25 | demo:activity: finished stays and reviews, so reviews can be demoed |
+| `06b93d7` | 2026-11-26 | Limit POST /events/ingest to services and admins (review on #11) |
+| `5f79a1e` | 2026-11-26 | Commit the load-test summaries behind the performance report |
+| `e89aa4c` | 2026-11-26 | Load tests: DLQ replay note and Windows/Git Bash instructions |
 
 </details>
 
