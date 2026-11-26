@@ -157,6 +157,13 @@ active, which the API rejects by design (API doc §2). After the last request at
 10/s because of warm connections and JIT; the 10/s run is the first after the
 warm-up and has fewer samples.
 
+These runs were made before the consumers recorded a trace step per event (the
+shared trace-steps change). A 20-second rerun at 200/s with trace steps on gave
+the same result (3,992 written, 0 lost) with pipeline p50 6, p95 19, p99 29 ms:
+3, 6 and 12 ms more than above, because each step is a MongoDB write on the same
+laptop (one shorter run, so a rough comparison).
+`TRACE_STEPS=off` turns them off for load tests.
+
 The API's speed does not depend on the worker: the request only publishes to
 Kafka. This is the main point of the asynchronous design. Experiment 4 shows
 what happens when the worker falls behind.

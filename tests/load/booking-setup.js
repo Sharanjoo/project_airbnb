@@ -46,7 +46,11 @@ async function cleanup(sql) {
   await db.collection('debate_messages').deleteMany({ trace_id: { $in: traces } });
   await db.collection('feedback').deleteMany({ trace_id: { $in: traces } });
   const ai = await db.collection('ai_tasks').deleteMany({ user_id: re });
-  const ev = await db.collection('events').deleteMany({ $or: [{ actor_id: re }, { 'payload.guest_id': re }, { 'payload.user_id': re }, { trace_id: { $in: traces } }] });
+  const evFilter = { $or: [{ actor_id: re }, { 'payload.guest_id': re }, { 'payload.user_id': re }, { trace_id: { $in: traces } }] };
+  // the consumers' trace steps for these journeys (shared consumer, API doc §8)
+  const journeys = await db.collection('events').distinct('trace_id', evFilter);
+  await db.collection('traces').deleteMany({ trace_id: { $in: [...journeys, ...traces] } });
+  const ev = await db.collection('events').deleteMany(evFilter);
   console.log(`cleanup: ${res[0].n} reservations, ${g.affectedRows} guests, ${th.deletedCount} threads, ${msgs.deletedCount} messages, ${ev.deletedCount} events, ${ai.deletedCount} AI tasks`);
 }
 
