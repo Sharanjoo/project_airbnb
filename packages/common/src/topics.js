@@ -6,6 +6,7 @@ const TOPICS = Object.freeze({
   PROPERTY_UPDATED: 'property.updated',
   PROPERTY_VIEWED: 'property.viewed',
   PROPERTY_SAVED: 'property.saved',
+  PROPERTY_SEARCHED: 'property.searched',
   AVAILABILITY_CHANGED: 'availability.changed',
   BOOKING_REQUESTED: 'booking.requested',
   BOOKING_APPROVED: 'booking.approved',

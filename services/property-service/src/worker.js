@@ -1,5 +1,6 @@
 // Property worker (consumer group property-cg). Separate process from the API.
-//   booking.confirmed / cancelled / completed / rejected -> invalidate cached search + calendar
+//   booking.confirmed / cancelled / completed -> invalidate cached search + calendar
+//   booking.rejected (only a host decline)    -> the same; a request that lost the race held no nights
 //   review.created                           -> recompute rating and review_count from MongoDB reviews
 //   property.created / property.updated      -> refresh the MongoDB read model used by the "mongo" strategy
 // Every handler is idempotent (it recomputes from the source of truth), so a
@@ -16,6 +17,18 @@ async function onBookingChanged(env) {
   const propertyId = env.payload.property_id;
   await cache.invalidateProperty(propertyId);
   logger.info('cache invalidated after booking change', { trace_id: env.trace_id, property_id: propertyId, event: env.event_type });
+}
+
+/**
+ * booking.rejected covers two cases. A host decline (new_status DECLINED) frees nights the
+ * request was holding, so cached searches and the calendar must go. A request refused by the
+ * booking worker (new_status REJECTED: dates taken, host block, deleted guest) never held any
+ * nights, so nothing changed; skipping it stops every losing request in a double-booking race
+ * from clearing the whole search cache.
+ */
+async function onBookingRejected(env) {
+  if (env.payload.new_status !== 'DECLINED') return;
+  await onBookingChanged(env);
 }
 
 /** Average of all reviews for the property, rounded to 2 decimals like the MySQL column. */
@@ -47,8 +60,7 @@ const handlers = {
   [TOPICS.BOOKING_CONFIRMED]: onBookingChanged,
   [TOPICS.BOOKING_CANCELLED]: onBookingChanged,
   [TOPICS.BOOKING_COMPLETED]: onBookingChanged,
-  // A host declining a request (new_status DECLINED) frees its nights, so cached search results must go too.
-  [TOPICS.BOOKING_REJECTED]: onBookingChanged,
+  [TOPICS.BOOKING_REJECTED]: onBookingRejected,
   [TOPICS.REVIEW_CREATED]: onReviewCreated,
   [TOPICS.PROPERTY_CREATED]: onPropertyChanged,
   [TOPICS.PROPERTY_UPDATED]: onPropertyChanged,

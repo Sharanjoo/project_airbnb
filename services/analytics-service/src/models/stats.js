@@ -249,17 +249,40 @@ async function top({ metric, city, limit }, w) {
 }
 
 // ---------------------------------------------------------------- geo (admin)
+/**
+ * Searches per region from property.searched counts per city ([{ _id: city, n }]).
+ * By city: as is. By state: each city's count goes to its state (cityState: city -> state).
+ * Searches without a city ("anywhere") have no region and are left out.
+ */
+function searchesByRegion(perCity, groupBy, cityState) {
+  const out = new Map();
+  for (const { _id: city, n } of perCity) {
+    if (!city) continue;
+    const region = groupBy === 'state' ? cityState.get(city) : city;
+    if (region) out.set(region, (out.get(region) || 0) + n);
+  }
+  return out;
+}
+
 async function geo({ groupBy }, w) {
   const col = groupBy === 'state' ? 'state' : 'city'; // whitelisted by the route
-  const [prices, bookings] = await Promise.all([
+  const [prices, bookings, perCity, cities] = await Promise.all([
     q(`SELECT ${col} AS region, AVG(nightly_price) AS avg_price FROM properties WHERE status = 'active' GROUP BY ${col}`),
     q(`SELECT p.${col} AS region, COUNT(*) AS bookings FROM reservations r JOIN properties p ON p.property_id = r.property_id
        WHERE r.status IN (?) AND r.booking_datetime >= ? AND r.booking_datetime < ? GROUP BY p.${col}`, [BOOKED, w.fromSql, w.toSql]),
+    // searches come from the property service's property.searched events (one per guest search)
+    // (inside an async function, so a MongoDB failure rejects this entry of Promise.all
+    // instead of throwing before the MySQL queries above are being awaited)
+    (async () => (await mongo('events')).aggregate([
+      { $match: { event_type: 'property.searched', timestamp: inWindow(w) } },
+      { $group: { _id: '$payload.city', n: { $sum: 1 } } },
+    ]).toArray())(),
+    groupBy === 'state' ? q('SELECT DISTINCT city, state FROM properties') : [],
   ]);
   const booked = new Map(bookings.map((b) => [b.region, num(b.bookings)]));
-  // searches: no service publishes a search event yet (asked Sharan); null means "not measured", not zero
+  const searches = searchesByRegion(perCity, groupBy, new Map(cities.map((c) => [c.city, c.state])));
   return prices
-    .map((p) => ({ region: p.region, searches: null, bookings: booked.get(p.region) || 0, avg_price: money(p.avg_price) }))
+    .map((p) => ({ region: p.region, searches: searches.get(p.region) || 0, bookings: booked.get(p.region) || 0, avg_price: money(p.avg_price) }))
     .sort((a, b) => b.bookings - a.bookings || String(a.region).localeCompare(String(b.region)));
 }
 
@@ -489,5 +512,5 @@ async function storeRejected(items) {
 
 module.exports = {
   funnel, propertyOwner, hostDashboard, guestDashboard, top, geo, platform, ai, trace, storeEvents, storeRejected,
-  fillDays, median, conversion, producerOf, summarizeAi, dedupe, STATUSES,
+  fillDays, median, conversion, producerOf, summarizeAi, dedupe, searchesByRegion, STATUSES,
 };

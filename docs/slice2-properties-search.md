@@ -52,11 +52,11 @@ silently overwrite a co-host's block made seconds earlier. **Also considered:**
 pessimistic `SELECT … FOR UPDATE` on a calendar read. It blocks other readers
 while a host thinks, so we rejected it for an interactive screen.
 
-**Coordination with Slice 3 (Prajeet).** The booking worker claims nights
-without checking host blocks. To close the last gap, the worker's transaction
-should also refuse nights inside a `blocked` range (one `NOT EXISTS` against
-`availability_blocks`) and bump `availability_version`. Then a host block and
-a booking racing for the same night cannot both succeed.
+**Coordination with Slice 3 (done).** The booking worker takes a shared lock on
+the property row and refuses nights inside a host `blocked` range in the same
+transaction that claims them. A host block takes the exclusive lock first (the
+`availability_version` update above), so a block and a booking racing for the
+same night cannot both succeed: whichever commits second sees the first.
 
 ## 13.8 Search strategy comparison
 
@@ -84,10 +84,29 @@ Results append to `tests/load/results/search-bench.csv` (throughput, average,
 p50, p95, p99, error rate, cache hit rate). Run `docker stats` alongside and
 note peak CPU and memory for `mysql`, `mongo` and `redis`.
 
-Expected trade-off, to be confirmed by the measurements: MySQL is simplest and
-always fresh; MongoDB can be faster for attribute-only queries, but needs a
-second MySQL query for dates and can lag behind updates; the cache wins for
-repeated searches.
+**Results.** 10,000 properties, 25 concurrent users, the same request mix for
+every run, sent to the property service directly (`bench:search` default),
+on one Windows laptop with everything in Docker Desktop:
+
+| Strategy | Throughput (req/s) | Average (ms) | p95 (ms) |
+| --- | ---: | ---: | ---: |
+| `mysql`, cache off | 79 | 313 | 566 |
+| `mongo`, cache off | 47 | 522 | 1,035 |
+| `mysql`, cache on (95% hits) | 147 | 163 | 289 |
+
+MySQL wins: about 1.7 times the throughput of MongoDB and half the p95. The
+`mongo` strategy pays for two round trips (the read model in MongoDB, then one
+MySQL query to drop booked or blocked candidates), and our filters fit the
+MySQL indexes well. MongoDB is also only eventually consistent, so `mysql`
+stays the default. The
+cache nearly doubles throughput and halves p95 on top of MySQL.
+
+Timothy's performance report ([`docs/performance-report.md`](performance-report.md),
+experiments 1 and 5) measured the `mysql` strategy with JMeter on a faster
+machine: about 1,150 req/s through the gateway, the two indexes worth 5 to 35%,
+and the cache 3.3 times the throughput at the property service. The absolute
+numbers differ from the table above because the machines differ; the
+comparisons between configurations point the same way.
 
 ## 13.9 Redis cache invalidation
 
@@ -111,6 +130,12 @@ Redis stopped returns in about 0.3 s without errors.
 MISS with the new price. Run it again after `docker compose stop redis` to show
 BYPASS.
 
+**What does not invalidate.** `booking.rejected` only clears the cache for a host
+decline (`new_status` DECLINED), which frees nights. A request refused by the
+booking worker (dates taken, host block, deleted guest) never held nights, so
+it changes nothing; without this check every losing request in a double-booking
+race would refresh every cached search.
+
 **Rejected alternative:** deleting only the search keys that contain the changed
 property. That needs a reverse index (property → keys) that must stay in sync,
 and it is easy to miss a key. Bumping one counter is a single atomic command and
@@ -131,11 +156,17 @@ which is acceptable with a 60 s TTL.
   named here as future work.
 - **Cache invalidation runs before publishing the event,** so the next search
   is correct even when Kafka is slow.
+- **Search events for analytics.** Every guest search publishes one
+  `property.searched` event (city, dates, guests, result count, strategy, cache
+  result), keyed by city. The admin geo report counts them per city or state.
+  It is fire and forget, so a slow or down broker never slows a search; a host
+  listing their own properties is not counted. Turn it off for search load
+  tests with `SEARCH_EVENTS=off`.
 
 ## Tests
 
 ```bash
-npm test -w services/property-service         # 33 unit tests, no database needed
+npm test -w services/property-service         # 38 unit tests, no database needed
 npm run test:db -w services/property-service  # 15 tests against MySQL + Redis (npm run infra:up first)
 ```
 

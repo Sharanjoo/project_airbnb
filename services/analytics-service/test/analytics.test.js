@@ -27,7 +27,7 @@ function fakeStats({ trace = { steps: [], participants: new Set() }, down = fals
     hostDashboard: rec('hostDashboard', { occupancy_rate: 0.5, revenue_total: 480 }),
     guestDashboard: rec('guestDashboard', { avg_match_score: 0.81 }),
     top: rec('top', [{ property_id: 'prp_1', title: 'Loft', value: 5 }]),
-    geo: rec('geo', [{ region: 'San Jose', searches: null, bookings: 3, avg_price: 168.4 }]),
+    geo: rec('geo', [{ region: 'San Jose', searches: 12, bookings: 3, avg_price: 168.4 }]),
     platform: rec('platform', {
       events_by_topic: { 'booking.requested': 2 }, throughput_per_min: 0.1, errors: 0, retries: 0,
       rejected_envelopes: 1, avg_workflow_latency_ms: { booking: 236, ai_recommendation: null },
@@ -362,4 +362,13 @@ test('AI summary: no requests in the window gives zeros and nulls, not errors', 
   assert.strictEqual(s.avg_disagreement, null);
   assert.strictEqual(s.dissent_rate, null);
   assert.strictEqual(s.publication_timeline_ms.verdict, null);
+});
+
+test('geo: searches per city, and per state through each city\'s state; "anywhere" searches have no region', () => {
+  const { searchesByRegion } = require('../src/models/stats');
+  const perCity = [{ _id: 'San Jose', n: 5 }, { _id: 'Oakland', n: 2 }, { _id: null, n: 9 }, { _id: 'Nowhere', n: 1 }];
+  const byCity = searchesByRegion(perCity, 'city', new Map());
+  assert.deepStrictEqual([...byCity], [['San Jose', 5], ['Oakland', 2], ['Nowhere', 1]]);
+  const byState = searchesByRegion(perCity, 'state', new Map([['San Jose', 'CA'], ['Oakland', 'CA']]));
+  assert.deepStrictEqual([...byState], [['CA', 7]]); // a city with no listings has no known state
 });

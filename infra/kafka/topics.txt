@@ -7,6 +7,7 @@ property.created           3
 property.updated           3
 property.viewed            6
 property.saved             3
+property.searched          3
 availability.changed       3
 booking.requested          6
 booking.approved           6
