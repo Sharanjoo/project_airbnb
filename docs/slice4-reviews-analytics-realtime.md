@@ -166,8 +166,11 @@ rejected-envelope count.
 **Data for the demo.** A fresh database shows zeros, because nothing is sampled.
 `npm run demo:activity` makes 8 demo guests use the app through the gateway:
 views and saves, booking requests that the seed host `hst_0001` approves,
-declines or cancels, messages with replies, and AI recommendations that are
-approved or rejected. Some stays start today so occupancy and revenue show in the
+declines or cancels, messages with replies, AI recommendations that are
+approved or rejected, and three stays that already ended: two are reviewed (with
+host responses) and one is left for a review written live in the demo
+(`gst_demo_act06`, My trips, Past). The reviewed listing is `prp_0002`, and the
+cleanup puts its rating back. Some stays start today so occupancy and revenue show in the
 default 30-day range. `npm run demo:activity -- --cleanup` removes all of it; do that
 before `npm run test:db`, whose booking tests use the same listings.
 
@@ -197,8 +200,11 @@ The trade-off is a small amount of chart code to maintain (`charts.jsx`).
   - The review prompt reaches the guest through the notification gateway
     (`booking.completed` on `user:<id>`); the review service does not consume
     `booking.completed` itself.
-- The rating trend and reviews need a COMPLETED stay, which only the booking
-  scheduler produces after checkout, so `demo:activity` cannot create them.
+- Reviews need a COMPLETED stay, which only the booking scheduler produces after
+  check-out, and the booking API only takes future dates. `demo:activity` therefore
+  inserts three finished stays straight into MySQL (the only data it does not create
+  through the API); the scheduler, reviews, host responses and rating update after
+  that are the real flow.
 
 ## Performance report
 
