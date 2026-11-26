@@ -1,0 +1,6 @@
+run: search-noindex at 2026-11-25T21:02:03Z
+target: http://localhost:8080 (gateway), strategy=mysql, cache_mode=bypass
+levels: 1 10 25 50 100 users, 60s each, 5s ramp-up
+machine: Apple M4 Pro, 14 cores, 24 GB RAM, Darwin 27.2.0
+jmeter: 5.6.3, node v24.21.0, docker 29.9.3
+dataset: 10003 properties (10003 active)

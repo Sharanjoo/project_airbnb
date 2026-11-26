@@ -1,0 +1,13 @@
+run: consumer-groups at 2026-11-26T03:40:02Z
+backlog: 15s of bookings at up to 500/s per run; one worker per group; trace steps on
+machine: Apple M4 Pro, 14 cores
+A. 7393 bookings waiting; starting booking-worker only
+groups-1: booking   handled 7393/7393 in 12.9 s = 573/s
+B. 7397 bookings waiting; starting booking-worker, messaging-worker and analytics-worker together
+groups-3: booking   handled 7397/7397 in 13.1 s = 565/s
+groups-3: messaging handled 7397/7397 in 3.6 s = 2055/s
+groups-3: analytics handled 7397/7397 in 3.4 s = 2176/s
+   lag after run B, booking-worker-cg: 0
+   lag after run B, messaging-cg: 0
+   lag after run B, analytics-cg: 0
+   lag after run B, notify-cg: 0

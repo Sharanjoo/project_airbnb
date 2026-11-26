@@ -1,0 +1,4 @@
+run: kafka-scaling at 2026-11-25T21:42:31Z
+topic booking.requested: PartitionCount: 6, consumer group booking-worker-cg
+backlog: 30s of bookings at up to 500/s per run; workers tested: 1 3
+machine: Apple M4 Pro, 14 cores, 24 GB RAM

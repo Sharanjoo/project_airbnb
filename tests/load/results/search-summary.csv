@@ -1,0 +1,6 @@
+label,threads,samples,duration_s,throughput_per_s,avg_ms,p50_ms,p95_ms,p99_ms,error_rate
+search-1,1,14418,60,240.5,4,4,6,7,0
+search-10,10,68550,60,1143.2,8,9,12,14,0
+search-25,25,70119,60,1169.4,19,19,25,29,0
+search-50,50,68767,60,1146.8,40,38,45,50,0
+search-100,100,67551,60,1126.5,82,75,86,99,0

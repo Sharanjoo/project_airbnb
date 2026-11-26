@@ -1,0 +1,4 @@
+label,threads,samples,duration_s,throughput_per_s,avg_ms,p50_ms,p95_ms,p99_ms,error_rate
+nocache-direct-to-property-service,50,27018,20,1352.8,36,37,41,45,0
+cache-direct-to-property-service,50,97286,21.5,4519.5,8,8,10,12,0
+cache-via-gateway,50,17074,20,851.6,18,15,20,25,0

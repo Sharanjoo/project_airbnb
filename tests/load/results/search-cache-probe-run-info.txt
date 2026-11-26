@@ -1,0 +1,4 @@
+run: search-cache-probe at 2026-11-25T21:17Z (20 s per path, 50 users, same 50 query shapes as search.jmx)
+paths: property service directly on port 8002 (cache bypassed, then cache on), and through the gateway on 8080 (cache on)
+purpose: find out why the Redis cache did not raise throughput end to end (performance report, section 5b)
+machine: Apple M4 Pro, 14 cores, 24 GB RAM

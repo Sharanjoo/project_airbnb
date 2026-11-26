@@ -1,0 +1,6 @@
+label,threads,samples,duration_s,throughput_per_s,avg_ms,p50_ms,p95_ms,p99_ms,error_rate
+search-noindex-1,1,9386,59.9,156.7,6,6,8,9,0
+search-noindex-10,10,60621,60,1011.1,9,9,13,14,0
+search-noindex-25,25,66692,60,1112.2,22,22,27,31,0
+search-noindex-50,50,64128,60,1069.3,44,43,50,57,0
+search-noindex-100,100,63200,60,1053.2,90,87,97,110,0
