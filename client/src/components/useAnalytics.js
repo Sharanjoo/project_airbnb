@@ -3,8 +3,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The date pickers hold the viewer's local days. The API reads a plain date as a UTC day, so in
+ * the evening west of UTC "today" would end hours ago and the latest activity would be missing.
+ * Send the exact local start of `from` and the local end of `to` as timestamps instead.
+ */
+export function toApiRange(params) {
+  const out = { ...params };
+  if (typeof out.from === 'string' && DATE_ONLY.test(out.from)) out.from = new Date(`${out.from}T00:00:00`).toISOString();
+  if (typeof out.to === 'string' && DATE_ONLY.test(out.to)) {
+    const end = new Date(`${out.to}T00:00:00`);
+    end.setDate(end.getDate() + 1); // local midnight after `to`, so `to` is included
+    out.to = end.toISOString();
+  }
+  return out;
+}
+
 export function useAnalytics(path, params, { skip = false } = {}) {
-  const qs = new URLSearchParams(Object.entries(params || {}).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
+  const qs = new URLSearchParams(Object.entries(toApiRange(params || {})).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
   const url = qs ? `${path}?${qs}` : path;
   const [state, setState] = useState({ data: null, error: null, loading: !skip });
 
