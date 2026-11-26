@@ -1,0 +1,50 @@
+// Load one analytics GET endpoint and reload when the query changes.
+//   const { data, error, loading, reload } = useAnalytics('/analytics/platform', { from, to })
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '../api/client.js';
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The date pickers hold the viewer's local days. The API reads a plain date as a UTC day, so in
+ * the evening west of UTC "today" would end hours ago and the latest activity would be missing.
+ * Send the exact local start of `from` and the local end of `to` as timestamps instead.
+ */
+export function toApiRange(params) {
+  const out = { ...params };
+  if (typeof out.from === 'string' && DATE_ONLY.test(out.from)) out.from = new Date(`${out.from}T00:00:00`).toISOString();
+  if (typeof out.to === 'string' && DATE_ONLY.test(out.to)) {
+    const end = new Date(`${out.to}T00:00:00`);
+    end.setDate(end.getDate() + 1); // local midnight after `to`, so `to` is included
+    out.to = end.toISOString();
+  }
+  return out;
+}
+
+export function useAnalytics(path, params, { skip = false } = {}) {
+  const qs = new URLSearchParams(Object.entries(toApiRange(params || {})).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString();
+  const url = qs ? `${path}?${qs}` : path;
+  const [state, setState] = useState({ data: null, error: null, loading: !skip });
+
+  const load = useCallback(async () => {
+    if (skip) return;
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      setState({ data: await api('analytics', url, null, { method: 'GET' }), error: null, loading: false });
+    } catch (err) {
+      setState({ data: null, error: err, loading: false });
+    }
+  }, [url, skip]);
+
+  useEffect(() => { load(); }, [load]);
+  return { ...state, reload: load };
+}
+
+/** A friendly line for an API error. */
+export function errorLine(err) {
+  if (!err) return null;
+  if (err.status === 401) return 'Please log in to see this dashboard.';
+  if (err.status === 403) return 'This dashboard is not available for your account.';
+  if (err.status === 503) return 'Analytics data is temporarily unavailable. Try again in a moment.';
+  return err.message;
+}

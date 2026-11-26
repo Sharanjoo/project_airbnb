@@ -1,8 +1,12 @@
 process.env.NODE_ENV = 'test';
+// The routes now really query MySQL and Mongo. Fail fast when they are not running (CI), instead of
+// waiting 30 s for Mongo server selection on every endpoint.
+process.env.MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27018/?serverSelectionTimeoutMS=1500';
 // Every endpoint listed in the API doc must exist (anything but 404).
 // Keep this list in sync with the doc; add behaviour tests next to it as you implement.
 const test = require('node:test');
 const assert = require('node:assert');
+const { getMysql, getMongo } = require('@airbnb/common');
 const app = require('../src/index');
 
 const ENDPOINTS = [
@@ -31,7 +35,9 @@ test('analytics-service endpoints from the API doc are all routed', async () => 
       });
       const body = await res.json();
       assert.ok(body.trace_id, `${method} ${path} response has trace_id`);
-      assert.notStrictEqual(res.status, 404, `${method} ${path} is not routed`);
+      // a 404 for a missing resource (e.g. an unknown trace) is fine; only "Route ... not found" means unrouted
+      const unrouted = res.status === 404 && /^Route /.test(body.error?.message || '');
+      assert.ok(!unrouted, `${method} ${path} is not routed`);
     }
   } finally {
     server.close();
@@ -48,4 +54,10 @@ test('unknown route returns the common 404 error body', async () => {
   } finally {
     server.close();
   }
+});
+
+// Close the database connections so the test process can exit.
+test.after(async () => {
+  await getMysql().end().catch(() => {});
+  await getMongo().then((db) => db.client.close()).catch(() => {});
 });

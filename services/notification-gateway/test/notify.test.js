@@ -21,11 +21,14 @@ test('subscriber to a property receives availability.changed', async () => {
   await new Promise((r) => setTimeout(r, 50));
 
   const got = new Promise((r) => ws.on('message', (m) => r(JSON.parse(m))));
-  const delivered = n.push({ event_type: 'availability.changed', trace_id: 't1', payload: { property_id: 'prp_1', status: 'booked' } });
+  const delivered = n.push({ event_type: 'availability.changed', trace_id: 't1', timestamp: '2026-11-25T10:00:00.000Z', payload: { property_id: 'prp_1', status: 'booked' } });
   assert.strictEqual(delivered, 1);
   const frame = await got;
   assert.strictEqual(frame.type, 'availability.changed');
   assert.strictEqual(frame.trace_id, 't1');
+  // 13.4 latency is measured from the event's own time, which the frame carries
+  assert.strictEqual(frame.event_at, '2026-11-25T10:00:00.000Z');
+  assert.ok(Date.parse(frame.sent_at) >= Date.parse(frame.event_at));
   ws.close();
   n.wss.close();
   n.server.close();

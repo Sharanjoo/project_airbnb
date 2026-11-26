@@ -1,7 +1,8 @@
 // Notification gateway: turns Kafka events into WebSocket pushes (13.4).
 // Client connects to ws://host:8009/ws?token=<JWT> and sends
 //   { "subscribe": ["user:gst_0001", "property:prp_0001"] }
-// Every Kafka event is pushed to channels derived from its payload.
+// Every Kafka event is pushed to channels derived from its payload, as
+//   { type, trace_id, event_at, sent_at, payload }  (event_at = the event's own timestamp)
 //
 // Who may hear what:
 //   user:<id>      only the user whose token has sub = <id>. Gets the full payload.
@@ -105,7 +106,11 @@ function createNotifier() {
   function push(env) {
     const channels = channelsFor(env);
     const p = env.payload || {};
-    const frame = (payload) => JSON.stringify({ type: env.event_type, trace_id: env.trace_id, sent_at: new Date().toISOString(), payload });
+    // event_at is when the producer published the event; sent_at is when this gateway pushed it.
+    // The client measures 13.4 notification latency from event_at (event -> UI update).
+    const frame = (payload) => JSON.stringify({
+      type: env.event_type, trace_id: env.trace_id, event_at: env.timestamp || null, sent_at: new Date().toISOString(), payload,
+    });
     const full = frame(p);
     let pub; // built only if a listing watcher needs it
     let delivered = 0;
