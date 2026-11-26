@@ -168,7 +168,8 @@ rejected-envelope count.
 views and saves, booking requests that the seed host `hst_0001` approves,
 declines or cancels, messages with replies, and AI recommendations that are
 approved or rejected. Some stays start today so occupancy and revenue show in the
-default 30-day range. `npm run demo:activity -- --cleanup` removes all of it.
+default 30-day range. `npm run demo:activity -- --cleanup` removes all of it; do that
+before `npm run test:db`, whose booking tests use the same listings.
 
 **Dates.** The range pickers hold the viewer's local days; the client sends the
 local start of `from` and end of `to` as timestamps, so "today" means the
@@ -184,9 +185,10 @@ The trade-off is a small amount of chart code to maintain (`charts.jsx`).
 - `geo` reports `searches: null` until property-service publishes a search event.
 - Rejected envelopes are counted in Mongo; sending them to an `events.dlq` topic
   waits for the team to add that topic.
-- Per-service trace steps (for example `claim_nights` in the booking worker) need
-  the shared trace helper in `packages/common`, which is proposed but not yet
-  agreed. Until then traces are built from Kafka events.
+- Trace steps per consumer (handled, retry, dead-lettered, with latency and error)
+  come from the shared consumer in `packages/common` (separate PR, tagged shared).
+  Without it, error and retry counts read 0 and traces show Kafka events only.
+  Finer steps inside a handler (for example `claim_nights`) are not recorded.
 - A WebSocket that drops is not reconnected automatically yet (`useLiveUpdates.js`).
 - Differences from the API doc:
   - The notification gateway is one process with its subscriptions in memory, not

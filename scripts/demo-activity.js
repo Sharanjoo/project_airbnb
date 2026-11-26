@@ -14,6 +14,8 @@
 //   host    hst_0001, the seed host (host dashboard), on its listings prp_0001 and prp_0002
 // Some stays start today, so occupancy and revenue show in the default 30-day window; the rest
 // are in the coming weeks (set To later on the host dashboard to include them).
+// Remove it before `npm run test:db`: its bookings hold prp_0001/prp_0002 for the coming
+// weeks, so the booking service's scheduler tests would hit DATE_CONFLICT.
 // Not covered: reviews and the rating trend need a COMPLETED stay, which only the booking
 // scheduler produces after checkout; searches are not published as events.
 const { randomUUID } = require('crypto');
@@ -76,7 +78,9 @@ async function main() {
         { 'payload.reservation_id': { $in: resIds } }, { 'payload.thread_id': { $in: threads } }, { trace_id: { $in: aiTraces } },
       ],
     };
-    const eventIds = (await mongo.collection('events').find(evFilter, { projection: { event_id: 1 } }).toArray()).map((e) => e.event_id);
+    const found = await mongo.collection('events').find(evFilter, { projection: { event_id: 1, trace_id: 1 } }).toArray();
+    const eventIds = found.map((e) => e.event_id);
+    const traceIds = [...new Set([...found.map((e) => e.trace_id), ...aiTraces])];
     if (eventIds.length) await q('DELETE FROM processed_events WHERE event_id IN (?)', [eventIds]);
     if (resIds.length) {
       await q('DELETE FROM reservation_status_history WHERE reservation_id IN (?)', [resIds]);
@@ -92,7 +96,7 @@ async function main() {
     await mongo.collection('feedback').deleteMany({ trace_id: { $in: aiTraces } });
     await mongo.collection('ai_tasks').deleteMany({ user_id: { $in: GUESTS } });
     const ev = await mongo.collection('events').deleteMany(evFilter);
-    await mongo.collection('traces').deleteMany({ trace_id: { $in: aiTraces } });
+    await mongo.collection('traces').deleteMany({ trace_id: { $in: traceIds } }); // consumers' trace steps
     return { guests: g.affectedRows, reservations: resIds.length, events: ev.deletedCount, threads: threads.length, aiTasks: tasks.length };
   }
 
