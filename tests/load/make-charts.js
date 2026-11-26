@@ -162,6 +162,22 @@ write('kafka-scaling.svg', columns({
   unit: '/s',
 }));
 
+// 4b: consumer groups, each reading the same backlog
+const groups = readCsv('consumer-groups-summary.csv');
+const rate = (label, group) => n((groups.find((r) => r.label === label && r.group === group) || {}).per_s);
+write('consumer-groups.svg', columns({
+  title: 'booking.requested backlog: one consumer group vs three',
+  subtitle: 'Each group keeps its own offsets and handled every event; the booking worker is as fast either way',
+  groups: ['Booking worker alone', 'Three groups at once'],
+  series: [
+    { name: 'booking-worker-cg', values: [rate('groups-1', 'booking'), rate('groups-3', 'booking')] },
+    { name: 'messaging-cg', values: [null, rate('groups-3', 'messaging')] },
+    { name: 'analytics-cg', values: [null, rate('groups-3', 'analytics')] },
+  ],
+  yLabel: 'events per second',
+  unit: '/s',
+}));
+
 // 3: AI debate (rule-based parser)
 const ai = readCsv('ai-summary.csv').filter((r) => r.parser === 'deterministic');
 write('ai-debate.svg', columns({

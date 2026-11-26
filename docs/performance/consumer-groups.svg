@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="booking.requested backlog: one consumer group vs three">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">booking.requested backlog: one consumer group vs three</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">Each group keeps its own offsets and handled every event; the booking worker is as fast either way</text>
+<rect x="64" y="56" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="79" y="65" font-size="12" fill="#1f2328">booking-worker-cg</text>
+<rect x="202.2" y="56" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="217.2" y="65" font-size="12" fill="#1f2328">messaging-cg</text>
+<rect x="307.4" y="56" width="10" height="10" rx="2" fill="#1baf7a"/>
+<text x="322.4" y="65" font-size="12" fill="#1f2328">analytics-cg</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">1250</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">2500</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">events per second</text>
+<path d="M195,344 V287.0328 Q195,283.0328 199,283.0328 H215 Q219,283.0328 219,287.0328 V344 Z" fill="#2a78d6"><title>booking-worker-cg, Booking worker alone: 573/s</title></path>
+<text x="207" y="279.0328" font-size="10" fill="#1f2328" text-anchor="middle">573</text>
+<text x="233" y="362" font-size="12" fill="#1f2328" text-anchor="middle">Booking worker alone</text>
+<path d="M533,344 V287.884 Q533,283.884 537,283.884 H553 Q557,283.884 557,287.884 V344 Z" fill="#2a78d6"><title>booking-worker-cg, Three groups at once: 565/s</title></path>
+<text x="545" y="279.884" font-size="10" fill="#1f2328" text-anchor="middle">565</text>
+<path d="M559,344 V129.348 Q559,125.34800000000001 563,125.34800000000001 H579 Q583,125.34800000000001 583,129.348 V344 Z" fill="#eb6834"><title>messaging-cg, Three groups at once: 2055/s</title></path>
+<text x="571" y="121.34800000000001" font-size="10" fill="#1f2328" text-anchor="middle">2055</text>
+<path d="M585,344 V116.4736 Q585,112.4736 589,112.4736 H605 Q609,112.4736 609,116.4736 V344 Z" fill="#1baf7a"><title>analytics-cg, Three groups at once: 2176/s</title></path>
+<text x="597" y="108.4736" font-size="10" fill="#1f2328" text-anchor="middle">2176</text>
+<text x="571" y="362" font-size="12" fill="#1f2328" text-anchor="middle">Three groups at once</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>

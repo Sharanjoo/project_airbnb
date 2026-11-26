@@ -28,6 +28,18 @@ Never use `docker compose down` before a demo: it recreates Kafka and loses its 
 | 1. Search, 1 to 100 users | `bash tests/load/run-search.sh` | `results/search-summary.csv` |
 | 5. Search without the indexes | `bash tests/load/run-indexing.sh` (restores the indexes afterwards) | `results/search-noindex-summary.csv` |
 | Search with the Redis cache | `NAME=search-cache CACHE_MODE=default bash tests/load/run-search.sh` | `results/search-cache-summary.csv` |
+| 2. Booking end to end, 10 / 50 / 200 per second | `bash tests/load/run-booking.sh` | `results/booking-summary.csv` |
+| 4. Kafka scaling, 1 vs 3 booking workers | `bash tests/load/run-kafka-scaling.sh` | `results/kafka-scaling-summary.csv` |
+| 4. One consumer group vs three | `bash tests/load/run-consumer-groups.sh` | `results/consumer-groups-summary.csv` |
+| 6. Failure recovery (worker killed, MySQL stopped) | `bash tests/load/run-recovery.sh` | `results/recovery-summary.csv` |
+| 3. AI debate timings | `node tests/load/booking-setup.js --guests 100`, then `node tests/load/ai-timings.js --tasks 30 --concurrency 3 --label det-c3` | `results/ai-summary.csv` |
+| Charts for the report | `node tests/load/make-charts.js` | `docs/performance/*.svg` |
+
+The booking, scaling, groups and recovery runs create load-test guests (`gst_lt_…`)
+and delete everything they made at the end (`node tests/load/booking-setup.js
+--cleanup` does it by hand). They stop and start workers but never recreate Kafka.
+Load the settings first for the Node scripts: `set -a; . ./.env; set +a`.
+`TRACE_STEPS=off` on the workers turns off their trace steps for a run.
 
 `run-search.sh` takes `LEVELS`, `DURATION`, `RAMPUP`, `HOST`, `PORT`, `STRATEGY`
 (`mysql` or `mongo`) and `CACHE_MODE` (`bypass` or `default`). Every run writes

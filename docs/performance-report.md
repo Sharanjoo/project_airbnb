@@ -34,7 +34,7 @@ Every test user, booking, event and AI task was deleted after the runs
 | 5a. Indexes | Dropping the two search indexes costs 35% of throughput at 1 user and 5–12% at 10+ users; p95 is 1–11 ms higher |
 | 5b. Redis cache | 3.3× throughput at the property service (1,353 → 4,520 req/s), but no gain end to end: the gateway is the ceiling |
 | 2. Booking end to end | API p95 6–14 ms; Kafka → worker → MySQL p95 5–13 ms; at 200 bookings/s nothing was lost and the backlog was gone 14 ms after the last request |
-| 4. Kafka scaling | 1 → 3 booking workers: 613 → 1,113 bookings/s (1.8×) |
+| 4. Kafka scaling | 1 → 3 booking workers: 613 → 1,113 bookings/s (1.8×). Three consumer groups on one topic each got every event, and the booking worker kept its speed (573 → 565/s) |
 | 6. Failure recovery | Worker killed mid-backlog, and MySQL stopped for 8 s: 0 lost, 0 duplicated in both cases |
 | 3. AI debate | Rule-based parser: verdict p50 43 ms (1 debate), 87 ms (3 at once). Local LLM parser: ~10 s per request alone, and 3 of 9 timed out with 3 at once |
 
@@ -190,6 +190,36 @@ three workers compete for the same tables in one MySQL instance. More partitions
 waits. One worker at 613/s is still three times the 200/s of experiment 2, so
 one worker is enough for the demo.
 
+### Consumer groups
+
+Workers in one group share the partitions; separate groups each read the whole
+topic. `booking.requested` is read by `booking-worker-cg` (writes the
+reservation), `messaging-cg` (opens the guest-host thread), `analytics-cg` (stores
+the event) and `notify-cg` (pushes it to the host). `run-consumer-groups.sh`
+queues about 7,400 bookings twice: run A with only the booking worker reading,
+run B with the booking, messaging and analytics workers starting together. Each
+group's rate is measured from its own first and last write (`groups-measure.js`).
+
+![Consumer groups](performance/consumer-groups.svg)
+
+| Run | Group | Events handled | Drain time (s) | Events/s |
+|---|---|---:|---:|---:|
+| A. one group | booking-worker-cg | 7,393 of 7,393 | 12.9 | 573 |
+| B. three groups | booking-worker-cg | 7,397 of 7,397 | 13.1 | 565 |
+| B. three groups | messaging-cg | 7,397 of 7,397 | 3.6 | 2,055 |
+| B. three groups | analytics-cg | 7,397 of 7,397 | 3.4 | 2,176 |
+
+Every group handled every event, and all four groups ended with lag 0. With
+two more groups reading the same backlog, the booking worker drained at 565/s
+against 573/s alone (1.4% apart, within run-to-run noise): each group keeps its own
+offsets, so a new reader does not take events away from the others or wait for
+them. The messaging and analytics groups are 3.6 and 3.9 times faster because
+each does one MongoDB write, while the booking worker runs a MySQL transaction
+that claims nights. Adding a consumer for a new purpose (a new group) is
+therefore cheap; adding consumers to an existing group only helps up to the
+partition count and the database behind it (above). These runs had trace steps
+on, which is why the booking worker is a little slower than the 613/s above.
+
 ## 6. Failure recovery
 
 `run-recovery.sh` queues about 10,000 bookings and then breaks something while
@@ -288,7 +318,7 @@ cost of more database reads.
 | | |
 |---|---|
 | Test plans | `tests/load/search.jmx`, `tests/load/booking.jmx` |
-| Runners | `run-search.sh`, `run-indexing.sh`, `run-booking.sh`, `run-kafka-scaling.sh`, `run-recovery.sh`, `ai-timings.js` |
-| Checks | `booking-e2e.js`, `drain-measure.js`, `recovery-check.js`, `summarize.js` |
+| Runners | `run-search.sh`, `run-indexing.sh`, `run-booking.sh`, `run-kafka-scaling.sh`, `run-consumer-groups.sh`, `run-recovery.sh`, `ai-timings.js` |
+| Checks | `booking-e2e.js`, `drain-measure.js`, `groups-measure.js`, `recovery-check.js`, `summarize.js` |
 | Charts | `tests/load/make-charts.js` → `docs/performance/*.svg` |
 | Raw results | `tests/load/results/` (git-ignored: JTL files, summary CSVs, run info) |
