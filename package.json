@@ -39,7 +39,8 @@
     "bench:search": "node scripts/bench-search.js",
     "demo:cache": "node scripts/demo-cache.js",
     "demo:recovery": "node scripts/demo-recovery.js",
-    "demo:booking": "node scripts/demo-double-booking.js"
+    "demo:booking": "node scripts/demo-double-booking.js",
+    "demo:activity": "node scripts/demo-activity.js"
   },
   "engines": {
     "node": ">=22"
