@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Property search throughput by concurrency">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">Property search throughput by concurrency</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">10,003 listings, through the gateway, 60 s per level, 0% errors in every run</text>
+<rect x="64" y="56" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="79" y="65" font-size="12" fill="#1f2328">MySQL, with indexes</text>
+<rect x="215.39999999999998" y="56" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="230.39999999999998" y="65" font-size="12" fill="#1f2328">MySQL, without the search indexes</text>
+<rect x="459.19999999999993" y="56" width="10" height="10" rx="2" fill="#1baf7a"/>
+<text x="474.19999999999993" y="65" font-size="12" fill="#1f2328">With Redis cache</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">1000</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">2000</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">requests per second</text>
+<path d="M93.6,344 V316.0135 Q93.6,312.0135 97.6,312.0135 H113.6 Q117.6,312.0135 117.6,316.0135 V344 Z" fill="#2a78d6"><title>MySQL, with indexes, 1 user: 240.5 req/s</title></path>
+<text x="105.6" y="308.0135" font-size="10" fill="#1f2328" text-anchor="middle">241</text>
+<path d="M119.6,344 V327.1589 Q119.6,323.1589 123.6,323.1589 H139.6 Q143.6,323.1589 143.6,327.1589 V344 Z" fill="#eb6834"><title>MySQL, without the search indexes, 1 user: 156.7 req/s</title></path>
+<text x="131.6" y="319.1589" font-size="10" fill="#1f2328" text-anchor="middle">157</text>
+<path d="M145.6,344 V244.526 Q145.6,240.526 149.6,240.526 H165.6 Q169.6,240.526 169.6,244.526 V344 Z" fill="#1baf7a"><title>With Redis cache, 1 user: 778 req/s</title></path>
+<text x="157.6" y="236.526" font-size="10" fill="#1f2328" text-anchor="middle">778</text>
+<text x="131.6" y="362" font-size="12" fill="#1f2328" text-anchor="middle">1 user</text>
+<path d="M228.79999999999998,344 V195.9544 Q228.79999999999998,191.9544 232.79999999999998,191.9544 H248.79999999999998 Q252.79999999999998,191.9544 252.79999999999998,195.9544 V344 Z" fill="#2a78d6"><title>MySQL, with indexes, 10 users: 1143.2 req/s</title></path>
+<text x="240.79999999999998" y="187.9544" font-size="10" fill="#1f2328" text-anchor="middle">1143</text>
+<path d="M254.79999999999998,344 V213.5237 Q254.79999999999998,209.5237 258.79999999999995,209.5237 H274.79999999999995 Q278.79999999999995,209.5237 278.79999999999995,213.5237 V344 Z" fill="#eb6834"><title>MySQL, without the search indexes, 10 users: 1011.1 req/s</title></path>
+<text x="266.79999999999995" y="205.5237" font-size="10" fill="#1f2328" text-anchor="middle">1011</text>
+<path d="M280.79999999999995,344 V221.118 Q280.79999999999995,217.118 284.79999999999995,217.118 H300.79999999999995 Q304.79999999999995,217.118 304.79999999999995,221.118 V344 Z" fill="#1baf7a"><title>With Redis cache, 10 users: 954 req/s</title></path>
+<text x="292.79999999999995" y="213.118" font-size="10" fill="#1f2328" text-anchor="middle">954</text>
+<text x="266.79999999999995" y="362" font-size="12" fill="#1f2328" text-anchor="middle">10 users</text>
+<path d="M364,344 V192.4698 Q364,188.4698 368,188.4698 H384 Q388,188.4698 388,192.4698 V344 Z" fill="#2a78d6"><title>MySQL, with indexes, 25 users: 1169.4 req/s</title></path>
+<text x="376" y="184.4698" font-size="10" fill="#1f2328" text-anchor="middle">1169</text>
+<path d="M390,344 V200.07739999999998 Q390,196.07739999999998 394,196.07739999999998 H410 Q414,196.07739999999998 414,200.07739999999998 V344 Z" fill="#eb6834"><title>MySQL, without the search indexes, 25 users: 1112.2 req/s</title></path>
+<text x="402" y="192.07739999999998" font-size="10" fill="#1f2328" text-anchor="middle">1112</text>
+<path d="M416,344 V266.4178 Q416,262.4178 420,262.4178 H436 Q440,262.4178 440,266.4178 V344 Z" fill="#1baf7a"><title>With Redis cache, 25 users: 613.4 req/s</title></path>
+<text x="428" y="258.4178" font-size="10" fill="#1f2328" text-anchor="middle">613</text>
+<text x="402" y="362" font-size="12" fill="#1f2328" text-anchor="middle">25 users</text>
+<path d="M499.19999999999993,344 V195.4756 Q499.19999999999993,191.4756 503.19999999999993,191.4756 H519.1999999999999 Q523.1999999999999,191.4756 523.1999999999999,195.4756 V344 Z" fill="#2a78d6"><title>MySQL, with indexes, 50 users: 1146.8 req/s</title></path>
+<text x="511.19999999999993" y="187.4756" font-size="10" fill="#1f2328" text-anchor="middle">1147</text>
+<path d="M525.1999999999999,344 V205.78310000000002 Q525.1999999999999,201.78310000000002 529.1999999999999,201.78310000000002 H545.1999999999999 Q549.1999999999999,201.78310000000002 549.1999999999999,205.78310000000002 V344 Z" fill="#eb6834"><title>MySQL, without the search indexes, 50 users: 1069.3 req/s</title></path>
+<text x="537.1999999999999" y="197.78310000000002" font-size="10" fill="#1f2328" text-anchor="middle">1069</text>
+<path d="M551.1999999999999,344 V241.5867 Q551.1999999999999,237.5867 555.1999999999999,237.5867 H571.1999999999999 Q575.1999999999999,237.5867 575.1999999999999,241.5867 V344 Z" fill="#1baf7a"><title>With Redis cache, 50 users: 800.1 req/s</title></path>
+<text x="563.1999999999999" y="233.5867" font-size="10" fill="#1f2328" text-anchor="middle">800</text>
+<text x="537.1999999999999" y="362" font-size="12" fill="#1f2328" text-anchor="middle">50 users</text>
+<path d="M634.4,344 V198.1755 Q634.4,194.1755 638.4,194.1755 H654.4 Q658.4,194.1755 658.4,198.1755 V344 Z" fill="#2a78d6"><title>MySQL, with indexes, 100 users: 1126.5 req/s</title></path>
+<text x="646.4" y="190.1755" font-size="10" fill="#1f2328" text-anchor="middle">1127</text>
+<path d="M660.4,344 V207.9244 Q660.4,203.9244 664.4,203.9244 H680.4 Q684.4,203.9244 684.4,207.9244 V344 Z" fill="#eb6834"><title>MySQL, without the search indexes, 100 users: 1053.2 req/s</title></path>
+<text x="672.4" y="199.9244" font-size="10" fill="#1f2328" text-anchor="middle">1053</text>
+<path d="M686.4,344 V266.1651 Q686.4,262.1651 690.4,262.1651 H706.4 Q710.4,262.1651 710.4,266.1651 V344 Z" fill="#1baf7a"><title>With Redis cache, 100 users: 615.3 req/s</title></path>
+<text x="698.4" y="258.1651" font-size="10" fill="#1f2328" text-anchor="middle">615</text>
+<text x="672.4" y="362" font-size="12" fill="#1f2328" text-anchor="middle">100 users</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" role="img" aria-label="Booking worker throughput: 1 vs 3 consumers (backlog drain)">
+<rect width="760" height="400" fill="#ffffff"/>
+<text x="64" y="26" font-size="16" font-weight="600" fill="#1f2328">Booking worker throughput: 1 vs 3 consumers (backlog drain)</text>
+<text x="64" y="45" font-size="12" fill="#5d6670">booking.requested has 6 partitions; ~15,000 queued bookings per run, all written once</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="348" font-size="11" fill="#5d6670" text-anchor="end">0</text>
+<line x1="64" x2="740" y1="211" y2="211" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="215" font-size="11" fill="#5d6670" text-anchor="end">1000</text>
+<line x1="64" x2="740" y1="78" y2="78" stroke="#e6e8eb" stroke-width="1"/>
+<text x="56" y="82" font-size="11" fill="#5d6670" text-anchor="end">2000</text>
+<text x="16" y="211" font-size="11" fill="#5d6670" text-anchor="middle" transform="rotate(-90 16 211)">bookings per second</text>
+<path d="M221,344 V266.471 Q221,262.471 225,262.471 H241 Q245,262.471 245,266.471 V344 Z" fill="#2a78d6"><title>Bookings written per second, 1 worker: 613/s</title></path>
+<text x="233" y="258.471" font-size="10" fill="#1f2328" text-anchor="middle">613</text>
+<text x="233" y="362" font-size="12" fill="#1f2328" text-anchor="middle">1 worker</text>
+<path d="M559,344 V199.971 Q559,195.971 563,195.971 H579 Q583,195.971 583,199.971 V344 Z" fill="#2a78d6"><title>Bookings written per second, 3 workers: 1113/s</title></path>
+<text x="571" y="191.971" font-size="10" fill="#1f2328" text-anchor="middle">1113</text>
+<text x="571" y="362" font-size="12" fill="#1f2328" text-anchor="middle">3 workers</text>
+<line x1="64" x2="740" y1="344" y2="344" stroke="#c9ced3"/>
+</svg>
