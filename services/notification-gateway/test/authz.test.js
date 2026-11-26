@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const jwt = require('jsonwebtoken');
 const WebSocket = require('ws');
-const { createNotifier, channelsFor, canSubscribe, PUSHED_TOPICS } = require('../src/index');
+const { createNotifier, channelsFor, canSubscribe, PUSHED_TOPICS, MAX_CHANNELS } = require('../src/index');
 
 const SECRET = 'test-secret';
 const token = (sub, role = 'guest') => jwt.sign({ sub, role }, SECRET);
@@ -153,5 +153,37 @@ test('tokens signed with another algorithm or without sub are refused', async ()
     });
     assert.strictEqual(code, 4401);
   }
+  await close();
+});
+
+test('one connection holds at most MAX_CHANNELS channels; the rest are ignored', async () => {
+  const { n, connect, settle, close } = await setup();
+  const many = Array.from({ length: MAX_CHANNELS + 20 }, (_, i) => `property:prp_${i}`);
+  const guest = await connect(token('gst_A'), many);
+  const ws = [...n.wss.clients][0];
+  assert.strictEqual(ws.channels.size, MAX_CHANNELS);
+  assert.ok(ws.channels.has('user:gst_A')); // own channel kept
+  guest.send(JSON.stringify({ subscribe: ['property:prp_late'] }));
+  await settle();
+  assert.strictEqual(ws.channels.size, MAX_CHANNELS);
+  assert.ok(!ws.channels.has('property:prp_late'));
+  n.push({ ...confirmed, payload: { ...confirmed.payload, property_id: 'prp_0', guest_id: 'gst_X', host_id: 'hst_X' } });
+  await settle();
+  assert.strictEqual(guest.frames.length, 1); // channels within the cap still work
+  await close();
+});
+
+test('an oversized client frame closes the connection', async () => {
+  const { n, connect, settle, close } = await setup();
+  const guest = await connect(token('gst_A'));
+  const code = new Promise((r) => guest.on('close', (c) => r(c)));
+  guest.send(JSON.stringify({ subscribe: ['x'.repeat(32 * 1024)] }));
+  assert.strictEqual(await code, 1009); // message too big; the gateway itself keeps running
+  await settle();
+  assert.strictEqual(n.wss.clients.size, 0);
+  const other = await connect(token('gst_B'));
+  n.push({ ...confirmed, payload: { ...confirmed.payload, guest_id: 'gst_B' } });
+  await settle();
+  assert.strictEqual(other.frames.length, 1); // still serving other users
   await close();
 });

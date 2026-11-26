@@ -14,6 +14,7 @@ adb.messages.createIndex({ client_message_id: 1 }, { unique: true, sparse: true 
 // Reviews
 adb.createCollection('reviews');
 adb.reviews.createIndex({ reservation_id: 1 }, { unique: true });
+adb.reviews.createIndex({ review_id: 1 }, { unique: true });
 adb.reviews.createIndex({ property_id: 1, created_datetime: -1 });
 adb.reviews.createIndex({ host_id: 1 });
 

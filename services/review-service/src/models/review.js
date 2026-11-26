@@ -2,7 +2,18 @@
 // reservations and guest first names are read from MySQL (owned by slices 3 and 1, read only here).
 const { getMysql, getMongo } = require('@airbnb/common');
 
-const col = async () => (await getMongo()).collection('reviews');
+let indexReady = false;
+
+async function col() {
+  const reviews = (await getMongo()).collection('reviews');
+  if (!indexReady) {
+    // Respond, flag and markPublished look reviews up by review_id. The init script only
+    // runs on an empty volume, so existing databases get the index here (a no-op if present).
+    await reviews.createIndex({ review_id: 1 }, { unique: true });
+    indexReady = true;
+  }
+  return reviews;
+}
 
 /** Strip Mongo internals and bookkeeping before a review leaves the service. */
 function toApi(doc) {

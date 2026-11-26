@@ -9,7 +9,8 @@
 //   property:<id>  anyone signed in (listing pages are public). Gets only the public
 //                  fields in PUBLIC_PROPERTY_FIELDS, and only for PROPERTY_EVENTS.
 //   task:<id>      ai.results only reach the task's owner (payload.user_id) or an admin.
-// Subscribing to anything else is ignored.
+// Subscribing to anything else is ignored. One connection holds at most MAX_CHANNELS
+// channels (its own user channel included); further subscribes are ignored too.
 process.env.SERVICE_NAME = process.env.SERVICE_NAME || 'notification-gateway';
 const http = require('http');
 const { WebSocketServer } = require('ws');
@@ -37,6 +38,11 @@ const PUBLIC_PROPERTY_FIELDS = [
 ];
 
 const CHANNEL_RE = /^(user|property|task):[A-Za-z0-9_-]{1,64}$/;
+
+/** Every push checks each connection's channels, so a connection may not hold thousands of them. */
+const MAX_CHANNELS = Number(process.env.NOTIFY_MAX_CHANNELS || 50);
+/** Largest client frame accepted; a subscribe list within MAX_CHANNELS is far smaller. */
+const MAX_FRAME_BYTES = 16 * 1024;
 
 /** May this signed-in user subscribe to this channel? */
 function canSubscribe(user, channel) {
@@ -78,9 +84,12 @@ function createNotifier() {
     res.statusCode = 404;
     res.end();
   });
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: MAX_FRAME_BYTES });
 
   wss.on('connection', (ws, req) => {
+    // A bad client frame (too big, invalid) closes that connection; without a listener the
+    // error would be thrown and stop the whole gateway.
+    ws.on('error', (err) => logger.warn('websocket client error', { error: err.message }));
     const token = new URL(req.url, 'http://x').searchParams.get('token');
     try {
       ws.user = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
@@ -94,6 +103,7 @@ function createNotifier() {
         const msg = JSON.parse(raw);
         // Channels the caller may not join are dropped silently: no frame says whether they exist.
         for (const c of [].concat(msg.subscribe || [])) {
+          if (ws.channels.size >= MAX_CHANNELS) break;
           if (canSubscribe(ws.user, c)) ws.channels.add(c);
         }
         for (const c of [].concat(msg.unsubscribe || [])) {
@@ -141,4 +151,4 @@ if (require.main === module) {
     .catch((err) => { logger.error('notify consumer failed', { error: err.message }); process.exit(1); });
 }
 
-module.exports = { createNotifier, channelsFor, canSubscribe, publicPayload, PUSHED_TOPICS };
+module.exports = { createNotifier, channelsFor, canSubscribe, publicPayload, PUSHED_TOPICS, MAX_CHANNELS };
