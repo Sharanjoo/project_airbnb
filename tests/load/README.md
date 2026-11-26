@@ -6,7 +6,9 @@ Required experiments (spec §9): property search under increasing concurrency,
 booking end-to-end time, AI debate timings, one vs many Kafka consumers,
 search with and without indexes, and failure recovery.
 
-Put each plan here as `<experiment>.jmx`; results go in `results/` (git-ignored).
+Put each plan here as `<experiment>.jmx`; results go in `results/`. Each experiment's
+`*-summary.csv` and `*-run-info.txt` are committed (the numbers behind
+`docs/performance-report.md`); raw `.jtl` files and logs stay local.
 Record the machine, dataset size, concurrency and duration for every run.
 
 ## Setup
@@ -20,6 +22,13 @@ npm run gen:properties -- --count 10000 --mongo
 
 The override raises the gateway's 100 requests/minute limit for test runs only.
 Never use `docker compose down` before a demo: it recreates Kafka and loses its data.
+
+**Windows:** run the `.sh` scripts from Git Bash (not PowerShell or cmd), with Java
+and JMeter's `bin` folder on `PATH`, and first run `export MSYS_NO_PATHCONV=1`, or
+Git Bash rewrites the `/opt/kafka/...` paths in the `docker compose exec` steps into
+Windows paths. The repo's `.gitattributes` keeps the scripts' Unix line endings. The
+machine line in `*-run-info.txt` then shows only the CPU type, so add the CPU, cores
+and RAM to the report by hand. (Written for Git Bash; the runs here were on macOS.)
 
 ## Experiments
 
