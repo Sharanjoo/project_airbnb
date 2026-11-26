@@ -16,7 +16,9 @@ async function storeEvent(env, { topic, partition, offset }) {
 }
 
 async function main() {
-  await bus.consume({ groupId: GROUP, topics: Object.values(TOPICS), handler: storeEvent });
+  // No trace steps from this consumer: it already stores every event it sees (the events
+  // collection), so a step per stored event would only double the trace view.
+  await bus.consume({ groupId: GROUP, topics: Object.values(TOPICS), handler: storeEvent, traceSteps: false });
   logger.info('analytics-worker consuming all domain topics');
 }
 
