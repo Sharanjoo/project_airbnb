@@ -147,9 +147,11 @@ collection with one step per Kafka event (service = the topic's producer, latenc
 like an unknown one.
 
 **Event ingest.** `POST /events/ingest` takes one envelope or `{events}` (max 500)
-and answers 202 `{accepted, rejected, errors}`. A guest or host may only report
-their own `actor_id`. Rejected envelopes are stored for the platform's
-rejected-envelope count.
+and answers 202 `{accepted, rejected, errors}`. Only services and admins may call
+it (guests and hosts get 403), so a user token cannot write events into the
+dashboards; services normally publish to Kafka, and this is for batch backfills.
+The API doc lists clients as callers too; this is narrower on purpose. Rejected
+envelopes are stored for the platform's rejected-envelope count.
 
 ## Dashboards
 
@@ -182,7 +184,8 @@ The trade-off is a small amount of chart code to maintain (`charts.jsx`).
 
 ## Limits
 
-- `geo` reports `searches: null` until property-service publishes a search event.
+- `geo` counts `searches` from the property service's `property.searched` events
+  (Sharan, #17); searches without a city have no region and are left out.
 - Rejected envelopes are counted in Mongo; sending them to an `events.dlq` topic
   waits for the team to add that topic.
 - Trace steps per consumer (handled, retry, dead-lettered, with latency and error)

@@ -284,23 +284,28 @@ test('ingest: API doc example (one valid, one malformed) -> 202 {accepted:1, rej
 test('ingest: a single envelope works; duplicates stored once; unknown topic rejected', () =>
   withService({}, async ({ base, stats }) => {
     const env = envelope();
-    const one = await post(base, '/events/ingest', env, GUEST);
+    const one = await post(base, '/events/ingest', env, SERVICE);
     assert.strictEqual(one.status, 202);
     assert.strictEqual(one.body.data.accepted, 1);
-    const again = await post(base, '/events/ingest', { events: [env] }, GUEST);
+    const again = await post(base, '/events/ingest', { events: [env] }, SERVICE);
     assert.strictEqual(again.body.data.duplicates, 1);
     assert.strictEqual(stats.stored.size, 1);
-    const unknown = await post(base, '/events/ingest', { ...envelope(), event_type: 'cats.adopted' }, GUEST);
+    const unknown = await post(base, '/events/ingest', { ...envelope(), event_type: 'cats.adopted' }, SERVICE);
     assert.strictEqual(unknown.body.data.rejected, 1);
   }));
 
-test('ingest: a guest cannot report someone else\'s actions; services can', () =>
-  withService({}, async ({ base }) => {
-    const spoof = await post(base, '/events/ingest', envelope('gst_9'), GUEST);
-    assert.strictEqual(spoof.body.data.rejected, 1);
-    assert.match(spoof.body.data.errors[0].issue, /actor_id/);
+test('ingest: services and admins only; guests and hosts get 403 and nothing is stored', () =>
+  withService({}, async ({ base, stats }) => {
+    for (const who of [GUEST, HOST]) {
+      const r = await post(base, '/events/ingest', envelope('gst_1'), who);
+      assert.strictEqual(r.status, 403);
+    }
+    assert.strictEqual(stats.stored.size, 0);
+    assert.strictEqual(stats.rejected.length, 0);
     const svc = await post(base, '/events/ingest', envelope('gst_9'), SERVICE);
     assert.strictEqual(svc.body.data.accepted, 1);
+    const admin = await post(base, '/events/ingest', envelope('gst_8'), ADMIN);
+    assert.strictEqual(admin.body.data.accepted, 1);
   }));
 
 test('ingest: body validated; signed-in callers only', () =>

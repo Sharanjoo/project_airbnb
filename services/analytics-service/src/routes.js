@@ -1,7 +1,7 @@
 // Analytics and Logging Service (API doc §8, examples in §13.6). Owner: Slice 4.
 // Dashboards must be computed from MySQL + Mongo events/traces, never static samples.
 //
-//   POST /events/ingest              services, clients  one envelope or {events:[…]} (max 500) -> 202 {accepted, rejected, errors}
+//   POST /events/ingest              services, admin    one envelope or {events:[…]} (max 500) -> 202 {accepted, rejected, errors}
 //   GET  /analytics/properties/top   signed in   metric=views|bookings|revenue|saves, from, to, city, limit (default 10)
 //   GET  /analytics/funnel           host (own), admin   host_id or property_id, from, to
 //   GET  /analytics/geo              admin       from, to, group_by=city|state
@@ -26,7 +26,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86400000;
 const MAX_INGEST = 500;
-const isPrivileged = (user) => user.role === 'admin' || user.role === 'service';
 
 const range = { from: Joi.string().isoDate(), to: Joi.string().isoDate() };
 const id = Joi.string().max(40);
@@ -106,7 +105,9 @@ function buildRouter({ bus, stats = defaultStats, kafka = defaultKafka }) { // e
   const r = express.Router();
 
   // ------------------------------------------------------------ ingest
-  r.post('/events/ingest', requireRole('guest', 'host', 'service'), asyncHandler(async (req, res) => {
+  // Services and admins only (review on #11): a guest or host token could otherwise write
+  // events into the dashboards. Services publish to Kafka; this is for batch backfills.
+  r.post('/events/ingest', requireRole('service'), asyncHandler(async (req, res) => {
     const body = req.body;
     // one envelope (has event_type) or { events: [...] }; anything else is not an ingest request at all
     if (!body || typeof body !== 'object' || Array.isArray(body) || !('events' in body || 'event_type' in body)) {
@@ -126,8 +127,6 @@ function buildRouter({ bus, stats = defaultStats, kafka = defaultKafka }) { // e
       else {
         const check = validateEnvelope(env, env.event_type);
         if (!check.valid) issue = check.errors.join('; ');
-        // a guest or host may only report their own actions; services and admins may report any
-        else if (!isPrivileged(req.user) && env.actor_id !== req.user.id) issue = '/actor_id must be the caller';
       }
       if (issue) {
         errors.push({ index, issue });
