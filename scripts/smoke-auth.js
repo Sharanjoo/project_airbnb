@@ -52,6 +52,72 @@ async function call(service, path, body, { token, headers = {} } = {}) {
 
 const describe = (r) => `${r.status} ${JSON.stringify(r.body?.error || r.body?.data || r.body)}`;
 
+async function getJson(path, token) {
+  const res = await fetch(`${GATEWAY}/api/v1/${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
+// ---- Admin account (npm run admin:create): uses the same setup code with a throwaway admin
+// and a random password, so it needs no secret and never touches the real admin. Removed after.
+async function adminChecks({ run, hs, gs }) {
+  console.log('\nAdmin account and dashboards');
+  const analyticsUp = !(await waitFor(`http://localhost:${process.env.ANALYTICS_SERVICE_PORT || 8006}/health`, Date.now() + 5000));
+  const { ensureAdmin } = require('../services/user-service/src/adminSetup');
+  const { getMysql } = require('@airbnb/common');
+  const email = `smoke-admin-${run}@example.com`;
+  const password = `Smoke-admin-${randomUUID()}`;
+  // Only throwaway smoke admins match this: removed at the start (left by an interrupted earlier
+  // run) and in `finally` (by email, so even a failure right after the insert leaves nothing behind).
+  const removeSmokeAdmins = (pattern) => getMysql().execute(
+    "DELETE FROM hosts WHERE email LIKE ? AND access_level = 'admin' AND name = 'Smoke Admin'", [pattern],
+  );
+  let hostId;
+  try {
+    const [stale] = await removeSmokeAdmins('smoke-admin-%@example.com');
+    if (stale.affectedRows) console.log(`  note  removed ${stale.affectedRows} throwaway admin(s) left by an earlier run`);
+    const created = await ensureAdmin({ email, name: 'Smoke Admin', getPassword: async () => password });
+    hostId = created.host_id;
+    check(created.outcome === 'created', `throwaway admin created ${hostId}`);
+    const again = await ensureAdmin({ email, name: 'Smoke Admin', getPassword: async () => { throw new Error('asked'); } });
+    check(again.outcome === 'exists', 'second run: exists, nothing changed, no password asked');
+
+    const login = await call('user', '/auth/login', { email, password, role: 'host' });
+    const as = login.body?.data;
+    check(login.status === 200 && as?.role === 'admin' && as.user_id === hostId, 'admin logs in as Host and gets role "admin"', describe(login));
+    const decoded = jwt.decode(as?.token || '') || {};
+    check(decoded.sub === hostId && decoded.role === 'admin', 'JWT claims are still just sub and role');
+
+    const search = await call('user', '/guests/search', { page_size: 1 }, { token: as?.token });
+    check(search.status === 200, 'admin guest search -> 200', describe(search));
+    const hostSearch = await call('user', '/guests/search', { page_size: 1 }, { token: hs.token });
+    check(hostSearch.status === 403, 'ordinary host guest search -> 403', describe(hostSearch));
+
+    if (!analyticsUp) {
+      console.log('  SKIP  dashboard checks: analytics-service is not running (docker compose up -d --build, or npm run dev:analytics)');
+      return;
+    }
+    for (const [name, path] of [['Platform', 'analytics/analytics/platform'], ['AI', 'analytics/analytics/ai']]) {
+      const r = await getJson(path, as?.token);
+      check(r.status === 200 && r.body?.data, `${name} dashboard data (GET /${path.slice(10)}) as admin -> 200`, describe(r));
+      for (const [who, token] of [['host', hs.token], ['guest', gs.token]]) {
+        const denied = await getJson(path, token);
+        check(denied.status === 403, `${name} dashboard data as an ordinary ${who} -> 403`, describe(denied));
+      }
+      const anon = await getJson(path);
+      check(anon.status === 401, `${name} dashboard data without a token -> 401`, describe(anon));
+    }
+  } finally {
+    try {
+      await removeSmokeAdmins(email);
+      const [[left]] = await getMysql().execute('SELECT COUNT(*) AS n FROM hosts WHERE email = ?', [email]);
+      check(left.n === 0, 'throwaway admin removed');
+    } catch (err) {
+      bad(`could not remove the throwaway admin ${email}: ${err.code || err.message}. Delete it by hand.`);
+    }
+    await getMysql().end().catch(() => {});
+  }
+}
+
 async function main() {
   console.log('Health checks');
   const deadline = Date.now() + WAIT_MS;
@@ -234,6 +300,9 @@ async function main() {
   const pause = await call('property', '/properties/update',
     { property_id: propertyId, version: listing.body.data.version, status: 'inactive' }, { token: hs.token });
   check(pause.status === 200 && pause.body.data.status === 'inactive', 'test listing set to inactive', describe(pause));
+
+  // Last, so a failure here cannot skip the tidy-up above. Cleans up its own admin either way.
+  await adminChecks({ run, hs, gs });
 }
 
 main().catch((e) => bad(e.stack || e.message));

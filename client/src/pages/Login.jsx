@@ -99,6 +99,7 @@ export default function Login() {
           <legend>Account type</legend>
           <label className="inline"><input type="radio" name="role" value="guest" checked={role === 'guest'} onChange={() => setRole('guest')} /> Guest</label>
           <label className="inline"><input type="radio" name="role" value="host" checked={role === 'host'} onChange={() => setRole('host')} /> Host</label>
+          {!signup && <p className="muted">Admins: log in as Host.</p>}
         </fieldset>
 
         {signup && role === 'guest' && (
