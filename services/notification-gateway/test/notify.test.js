@@ -12,7 +12,7 @@ test('channelsFor maps payload ids to channels', () => {
 });
 
 test('subscriber to a property receives availability.changed', async () => {
-  const n = createNotifier();
+  const n = createNotifier({ checkAccount: async () => 'active' });
   await new Promise((r) => n.server.listen(0, r));
   const token = jwt.sign({ sub: 'gst_2', role: 'guest' }, 'test-secret');
   const ws = new WebSocket(`ws://127.0.0.1:${n.server.address().port}/ws?token=${token}`);
@@ -35,7 +35,7 @@ test('subscriber to a property receives availability.changed', async () => {
 });
 
 test('bad token is closed with 4401', async () => {
-  const n = createNotifier();
+  const n = createNotifier({ checkAccount: async () => 'active' });
   await new Promise((r) => n.server.listen(0, r));
   const ws = new WebSocket(`ws://127.0.0.1:${n.server.address().port}/ws?token=bad`);
   const code = await new Promise((r) => ws.on('close', (c) => r(c)));

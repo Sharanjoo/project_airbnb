@@ -9,6 +9,7 @@
 //   property:<id>  anyone signed in (listing pages are public). Gets only the public
 //                  fields in PUBLIC_PROPERTY_FIELDS, and only for PROPERTY_EVENTS.
 //   task:<id>      ai.results only reach the task's owner (payload.user_id) or an admin.
+// A socket is accepted only for an account that still exists and is not deleted (accountCheck.js).
 // Subscribing to anything else is ignored. One connection holds at most MAX_CHANNELS
 // channels (its own user channel included); further subscribes are ignored too.
 process.env.SERVICE_NAME = process.env.SERVICE_NAME || 'notification-gateway';
@@ -16,6 +17,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const jwt = require('jsonwebtoken');
 const { EventBus, TOPICS, logger } = require('@airbnb/common');
+const { createAccountCheck } = require('./accountCheck');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-dev-secret';
 const GROUP = 'notify-cg';
@@ -75,7 +77,13 @@ function publicPayload(payload) {
   return Object.fromEntries(PUBLIC_PROPERTY_FIELDS.filter((k) => k in p).map((k) => [k, p[k]]));
 }
 
-function createNotifier() {
+/**
+ * checkAccount(userId) -> 'active' | 'revoked' | 'unavailable'. A socket gets its channels
+ * only once its account is confirmed active: a deleted account's token, which is still a
+ * valid JWT until it expires, is closed with 4401 like a bad token (review on #6). If the
+ * check cannot run (MySQL down), the socket is closed with 4503 rather than let through.
+ */
+function createNotifier({ checkAccount = createAccountCheck() } = {}) {
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
       res.setHeader('Content-Type', 'application/json');
@@ -97,8 +105,21 @@ function createNotifier() {
       return ws.close(4401, 'unauthenticated');
     }
     if (!ws.user || !ws.user.sub) return ws.close(4401, 'unauthenticated');
-    ws.channels = new Set([`user:${ws.user.sub}`]);
-    ws.on('message', (raw) => {
+    // No channels (so no pushes) and no subscribe handling until the account is confirmed.
+    const ready = Promise.resolve()
+      .then(() => checkAccount(String(ws.user.sub)))
+      .catch(() => 'unavailable')
+      .then((state) => {
+        if (state === 'active') {
+          ws.channels = new Set([`user:${ws.user.sub}`]);
+          return true;
+        }
+        if (state === 'revoked') ws.close(4401, 'unauthenticated');
+        else ws.close(4503, 'account check unavailable');
+        return false;
+      });
+    ws.on('message', async (raw) => {
+      if (!(await ready)) return;
       try {
         const msg = JSON.parse(raw);
         // Channels the caller may not join are dropped silently: no frame says whether they exist.

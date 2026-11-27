@@ -10,8 +10,10 @@ const { createNotifier, channelsFor, canSubscribe, PUSHED_TOPICS, MAX_CHANNELS }
 const SECRET = 'test-secret';
 const token = (sub, role = 'guest') => jwt.sign({ sub, role }, SECRET);
 
-async function setup() {
-  const n = createNotifier();
+const ACTIVE = async () => 'active';
+
+async function setup({ checkAccount = ACTIVE } = {}) {
+  const n = createNotifier({ checkAccount });
   await new Promise((r) => n.server.listen(0, r));
   const port = n.server.address().port;
   const clients = [];
@@ -185,5 +187,47 @@ test('an oversized client frame closes the connection', async () => {
   n.push({ ...confirmed, payload: { ...confirmed.payload, guest_id: 'gst_B' } });
   await settle();
   assert.strictEqual(other.frames.length, 1); // still serving other users
+  await close();
+});
+
+// ---------------------------------------------------------------- account status on connect (review on #6)
+const closeCode = (port, tok) => new Promise((resolve) => {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${tok}`);
+  const frames = [];
+  ws.on('message', (m) => frames.push(JSON.parse(m)));
+  ws.on('open', () => ws.send(JSON.stringify({ subscribe: ['property:prp_1'] })));
+  ws.on('close', (code) => resolve({ code, frames }));
+  setTimeout(() => { ws.terminate(); resolve({ code: 'still open', frames }); }, 1000);
+});
+
+test('a deleted account\'s token is refused with 4401 and hears nothing, not even its own channel', async () => {
+  const { n, close } = await setup({ checkAccount: async (id) => (id === 'gst_gone' ? 'revoked' : 'active') });
+  const port = n.server.address().port;
+  const pending = closeCode(port, token('gst_gone'));
+  await new Promise((r) => setTimeout(r, 50));
+  n.push({ ...confirmed, payload: { ...confirmed.payload, guest_id: 'gst_gone' } });
+  const { code, frames } = await pending;
+  assert.strictEqual(code, 4401);
+  assert.strictEqual(frames.length, 0);
+  await close();
+});
+
+test('if the account check cannot run, the socket is refused (4503), not let through', async () => {
+  for (const checkAccount of [async () => 'unavailable', async () => { throw new Error('mysql down'); }]) {
+    const { n, close } = await setup({ checkAccount });
+    const { code } = await closeCode(n.server.address().port, token('gst_A'));
+    assert.strictEqual(code, 4503);
+    await close();
+  }
+});
+
+test('an active account is checked once by its id and works as before', async () => {
+  const seen = [];
+  const { n, connect, settle, close } = await setup({ checkAccount: async (id) => { seen.push(id); return 'active'; } });
+  const guest = await connect(token('gst_A'));
+  n.push(confirmed);
+  await settle();
+  assert.deepStrictEqual(seen, ['gst_A']);
+  assert.strictEqual(guest.frames.length, 1);
   await close();
 });
