@@ -121,6 +121,7 @@ React -> gateway :8080 -> Booking API :8003 -> Kafka booking.requested
 npm run gen:properties                       # the fixed 200-property pool (AI benchmark "active-pool-v1")
 npm run gen:properties -- --count 10000 --mongo   # bigger dataset + MongoDB read model for search experiments
 npm run bench:search -- --strategy mysql --cache off   # search benchmark, results in tests/load/results/
+cd services/ai-service && python -m bench.run          # AI 50-request benchmark + labelling (services/ai-service/bench/README.md)
 npm run demo:cache                           # 13.9 demo: MISS, HIT, price change, fresh MISS
 ```
 
@@ -154,7 +155,7 @@ Working and tested:
 - `POST /bookings/request`: validation, Idempotency-Key replay, capacity check, publishes `booking.requested`
 - Booking worker: claims nights in one transaction; tested with 10 concurrent requests for the same nights (exactly one wins) and a duplicate delivery (applied once)
 - Notification gateway WebSocket push by channel
-- AI service (Slice 5, in progress): MongoDB task store, request parser (optional Ollama via `LLM_PROVIDER`), matching / risk / fairness agents, Chair with challenges, votes, decision rule, timeouts and `ai.results`, live WebSocket stream, approval, feedback and versions, AI match page. `npm run smoke:ai` checks it end to end. The 50-request benchmark is not built yet
+- AI service (Slice 5, in progress): MongoDB task store, request parser (optional Ollama via `LLM_PROVIDER`), matching / risk / fairness agents, Chair with challenges, votes, decision rule, timeouts and `ai.results`, live WebSocket stream, approval, feedback and versions, AI match page. `npm run smoke:ai` checks it end to end. The 50-request benchmark runs (`services/ai-service/bench/`); the two human labellers' sheets are still to be filled in
 
 Stubs that return `501 NOT_IMPLEMENTED` until their owner fills them in: every
 other endpoint, and all client pages.

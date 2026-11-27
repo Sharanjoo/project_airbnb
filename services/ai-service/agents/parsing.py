@@ -81,7 +81,7 @@ def _guests(t: str) -> int | None:
         return sum(map(_num, parts))
     if m := re.search(rf"\b{NUM} (?:people|persons?|guests?|travell?ers?|friends|of us)\b", t):
         return _num(m[1])
-    if m := re.search(rf"\b(?:sleeps|for) {NUM}\b(?!\s*[-]?(?:nights?|days?|weeks?|stars?)|\s*[\d.,/])", t):
+    if m := re.search(rf"\b(?:sleeps|for) {NUM}\b(?!\s*[-]?(?:nights?|days?|weeks?|stars?)|\s*\d|[.,/]\d)", t):
         return _num(m[1])
     if re.search(r"\bcouple\b(?! of)", t):
         return 2
@@ -240,8 +240,22 @@ def grounded_llm_fields(raw: dict, text: str, pool: PropertyPool) -> dict:
         if city and SequenceMatcher(None, city.lower(), quote).ratio() >= 0.8:
             out["city"] = city
     items = raw.get("amenities") if isinstance(raw.get("amenities"), list) else []
-    out["amenities"] = [i["value"] for i in items if _quoted(i, t) and i.get("value") in AMENITIES]
+    out["amenities"] = [i["value"] for i in items if isinstance(i, dict) and i.get("value") in AMENITIES and _about(i["value"], _quoted(i, t))]
     return out
+
+
+# Words an LLM quote may use for an amenity beyond the rules' own (AMENITY_WORDS). The quote has
+# to name the amenity somehow: the benchmark caught "a big house" being turned into a pool.
+LLM_AMENITY_HINTS = {
+    "wifi": r"wireless|online|stream\w*", "kitchen": r"cook\w*|stove|oven", "parking": r"park|car|driveway",
+    "washer": r"wash\w*|laundromat", "ac": r"cool\w*|air[- ]conditioned", "heating": r"heat\w*|warm",
+    "pool": r"swim\w*", "pet_friendly": r"animals?", "workspace": r"work\w*|office|remote\w*",
+    "self_checkin": r"keyless|lock ?box|contactless|late arrival",
+}
+
+
+def _about(amenity: str, quote: str | None) -> bool:
+    return bool(quote) and bool(re.search(rf"\b(?:{AMENITY_WORDS[amenity]}|{LLM_AMENITY_HINTS[amenity]})\b", quote))
 
 
 def _structured(payload: dict, pool: PropertyPool) -> dict:

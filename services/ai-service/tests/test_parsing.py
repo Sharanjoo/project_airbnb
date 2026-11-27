@@ -52,7 +52,8 @@ def test_city(text, city):
 
 @pytest.mark.parametrize("text,n", [("family of 4", 4), ("2 adults and 2 kids", 4), ("for three guests", 3), ("a couple trip", 2),
                                     ("a couple of nights", None), ("for 3 nights", None), ("solo trip", 1), ("sleeps six", 6),
-                                    ("for 2", 2), ("for 250 dollars", None)])
+                                    ("for 2", 2), ("for 250 dollars", None), ("Palo Alto for 2, max $300", 2),
+                                    ("for 2. Wifi", 2), ("for 2.5 hours", None), ("for 2,000 dollars", None)])
 def test_guests(text, n):
     assert req(text)["guests"] == n
 
@@ -132,6 +133,14 @@ def test_llm_cannot_guess_a_city_or_add_a_refused_amenity():
     reply = {"city": {"value": "Santa Cruz", "quote": "by the beach"}, "amenities": [{"value": "pool", "quote": "pool"}]}
     r = parse("by the beach without a pool", FakeLLM(reply))["requirements"]
     assert r["city"] is None and r["amenities"] == []
+
+
+def test_an_llm_amenity_quote_must_name_the_amenity():
+    # Found by the benchmark (R48): the quote was in the request but said nothing about a pool.
+    reply = {"amenities": [{"value": "pool", "quote": "a big house"}, {"value": "ac", "quote": "family reunion"},
+                           {"value": "self_checkin", "quote": "keyless entry"}, {"value": "kitchen", "quote": "cook dinner"}]}
+    r = parse("A big house for a family reunion, keyless entry, somewhere to cook dinner", FakeLLM(reply))["requirements"]
+    assert r["amenities"] == ["kitchen", "self_checkin"]
 
 
 @pytest.mark.parametrize("reply", [{}, {"city": 5, "guests": [], "amenities": "x"}, {"amenities": [None, {"value": []}]},
