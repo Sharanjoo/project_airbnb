@@ -200,13 +200,19 @@ services:
       KAFKA_BROKERS: kafka:9092
       MONGO_URL: mongodb://mongo:27017
       MONGO_DB: airbnb
-      AI_CONFIG_VERSION: matcher-v1
+      AI_CONFIG_VERSION: ${AI_CONFIG_VERSION:-matcher-v1}
+      PROPERTY_SERVICE_URL: http://property-service:8002 # Chair's last availability check; if it is down the result says so
+      LLM_PROVIDER: ${LLM_PROVIDER:-none}
+      LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
+      LLM_BASE_URL: http://host.docker.internal:11434 # Ollama on your machine; localhost would be this container
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-15}
     depends_on: *depends-infra
 
   ai-parser:
     build: { context: ., dockerfile: services/ai-service/Dockerfile }
     command: ["python", "-m", "agents", "parser"]
     environment: *ai-env
+    extra_hosts: ["host.docker.internal:host-gateway"] # only needed on Linux
     depends_on: *depends-infra
 
   ai-chair:

@@ -62,6 +62,8 @@ def _cities(t: str, pool: PropertyPool) -> list[str]:
 
 
 def _nights(t: str) -> int | None:
+    # "$250 a night", "400 dollars a night" is a price, not a one-night stay.
+    t = re.sub(r"(\d|\b(?:dollars?|usd|bucks))\s*(?:a|per|each|/)[- ]?\s*night\b", r"\1", t)
     if m := re.search(rf"\b{NUM}[- ]nights?\b", t):
         return _num(m[1])
     if m := re.search(rf"\b(?:{NUM}|a|one)[- ]weeks?\b", t):
@@ -91,7 +93,7 @@ def _guests(t: str) -> int | None:
 def _price(t: str) -> tuple[float | None, bool]:
     """(amount, is_total_for_the_stay)"""
     cap = (r"\b(?:under|below|less than|up to|at most|no more than|max(?:imum)?(?: of)?|within|"
-           r"budget(?: is| of|:)?|cheaper than|not over|not more than)\s+(?:about |around )?")
+           r"budget(?: is| of|:)?|cheaper than|(?:not|nothing|no) (?:over|above|more than))\s+(?:about |around )?")
     not_money = r"(?!\s*(?:\d|nights?|guests?|people|stars?|miles?|km|minutes?|kids?|adults?|reviews?))"
     m = (re.search(rf"\bbetween {MONEY} (?:and|to) {MONEY}", t)
          or re.search(rf"\$\s*\d+\s*(?:-|to)\s*{MONEY}", t)
