@@ -10,6 +10,9 @@ app.finalize();
 if (require.main === module) {
   const port = Number(process.env.ANALYTICS_SERVICE_PORT || 8006);
   app.listen(port, () => logger.info(`analytics-service listening on ${port}`));
+  require('./models/stats').ensureIndexes()
+    .then(() => logger.info('analytics indexes ready'))
+    .catch((err) => logger.warn('analytics indexes not created yet', { error: err.message }));
 }
 
 module.exports = app;

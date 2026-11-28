@@ -23,10 +23,12 @@ adb.createCollection('events');
 adb.events.createIndex({ event_id: 1 }, { unique: true });
 adb.events.createIndex({ event_type: 1, timestamp: -1 });
 adb.events.createIndex({ trace_id: 1 });
+adb.events.createIndex({ timestamp: -1 }); // platform summary: events in a time window
 
 adb.createCollection('traces');
 adb.traces.createIndex({ trace_id: 1, timestamp: 1 });
 adb.traces.createIndex({ service: 1, timestamp: -1 });
+adb.traces.createIndex({ timestamp: -1 }); // platform summary: steps in a time window
 
 // AI agent service
 adb.createCollection('ai_tasks');

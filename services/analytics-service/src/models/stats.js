@@ -20,6 +20,17 @@ const money = (v) => round(num(v), 2);
 const ratio = (a, b) => (b ? round(a / b, 3) : null);
 const q = async (sql, params) => (await getMysql().query(sql, params))[0];
 const mongo = async (name) => (await getMongo()).collection(name);
+
+/**
+ * Indexes the dashboard queries need beyond the init script's (review on #11): the platform
+ * summary filters events and trace steps by time alone. Created at startup so databases made
+ * before this index was added get it too (a no-op when it exists).
+ */
+async function ensureIndexes() {
+  const db = await getMongo();
+  await db.collection('events').createIndex({ timestamp: -1 });
+  await db.collection('traces').createIndex({ timestamp: -1 });
+}
 const inWindow = (w) => ({ $gte: w.from, $lt: w.to });
 
 /** Every day in [fromDay, toDay) with `blank()` where there is no row, so charts have no gaps. */
@@ -511,6 +522,6 @@ async function storeRejected(items) {
 }
 
 module.exports = {
-  funnel, propertyOwner, hostDashboard, guestDashboard, top, geo, platform, ai, trace, storeEvents, storeRejected,
+  ensureIndexes, funnel, propertyOwner, hostDashboard, guestDashboard, top, geo, platform, ai, trace, storeEvents, storeRejected,
   fillDays, median, conversion, producerOf, summarizeAi, dedupe, searchesByRegion, STATUSES,
 };
